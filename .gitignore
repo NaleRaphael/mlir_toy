@@ -1,0 +1,12 @@
+toy_examples
+toy_bin
+mlir_bin
+mlir_src
+
+.zig-cache/
+zig-out/
+
+.lldbinit
+
+*.log
+/*.txt
