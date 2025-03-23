@@ -8,18 +8,30 @@ ARG_DIR_BUILD_CACHE=""
 MODE=${1:-"Debug"}
 
 # NOTE: remember to update these paths according to your case.
-LLVM_DIR=~/workspace/tool/llvm-17/llvm_mlir_reldeb_rtti
-MLIR_DIR=~/workspace/tool/llvm-17/llvm_mlir_reldeb_rtti
+# It's fine to set both LLVM_DIR and MLIR_DIR below with the same path. We use
+# both of them in case users are building with a pre-installed LLVM and a
+# self-built MLIR.
+LLVM_DIR=~/workspace/tool/llvm-17/out/mlir
+MLIR_DIR=~/workspace/tool/llvm-17/out/mlir
 
-check_dir() {
-    local var_name=$1
-    local dir_name=${!var_name}
+check_var() {
+    local file_type=$1
+    local var_name=$2
+    local var_value=${!var_name}
 
-    if [[ ! -d ${dir_name} ]]; then
-        echo "[ERROR] ${var_name} does not exist, value: ${dir_name}"
+    if [[ $file_type != "d" && $file_type != "f" ]]; then
+        echo "[ERROR] Only these file types are available to check: d, f"
+        exit 1
+    fi
+
+    if [[ -z $var_value ]]; then
+        echo "[ERROR] Please specify a value for $var_name"
         exit 1
     fi
 }
+
+# ==============================================================================
+# Do some checks before building
 
 if [[ -z ${MODE} ]]; then
     echo "Please specify optimization mode to build"
@@ -33,8 +45,11 @@ if [[ -d ${DIR_RAMDISK} ]] && [[ ! -z ${CACHE_DIR_NAME} ]]; then
     ARG_DIR_BUILD_CACHE+=" --global-cache-dir ${DIR_ZIG_CACHE_ROOT}/${CACHE_DIR_NAME}"
 fi
 
-check_dir LLVM_DIR
-check_dir MLIR_DIR
+check_var d LLVM_DIR
+check_var d MLIR_DIR
+
+# ==============================================================================
+# Start building
 
 # ## Build and run Ch1
 # zig build ${ARG_DIR_BUILD_CACHE} -freference-trace -Doptimize=${MODE} -Dchapters=ch1

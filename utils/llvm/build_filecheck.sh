@@ -25,7 +25,9 @@ cmake \
     -DCMAKE_INSTALL_PREFIX=$install_dir \
     -DLLVM_ENABLE_PROJECTS="clang;llvm" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DLLVM_ENABLE_LLD=ON \
+    -DCMAKE_C_COMPILER=clang \
+    -DCMAKE_CXX_COMPILER=clang++ \
+    -DLLVM_ENABLE_LLD=ON \
     -DLLVM_CCACHE_BUILD=ON \
     -DBUILD_SHARED_LIBS=ON
 
