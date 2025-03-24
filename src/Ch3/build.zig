@@ -22,7 +22,7 @@ const LLVM_LIBS = [_][]const u8{
 // NOTE: for the dialect library, it's currently fine to link against to Zig's
 // libc++ if it's already built with LLVM's libc++. But we keep this option
 // available in case we want to link to a custom built libc++ for any reason.
-const USE_CUSTOM_LIBCXX = false;
+// const USE_CUSTOM_LIBCXX = true;
 
 pub fn build(
     b: *std.Build,
@@ -35,6 +35,7 @@ pub fn build(
         .root_source_file = b.path("src/Ch3/toyc.zig"),
         .target = config.target,
         .optimize = config.optimize,
+        .linkage = config.link_mode,
         .pic = config.pic,
     });
 
@@ -43,10 +44,11 @@ pub fn build(
         const cmd_build = b.addSystemCommand(&.{"./build_dialect.sh"});
         cmd_build.setCwd(b.path("src/Ch3"));
         cmd_build.has_side_effects = true;
-        cmd_build.setEnvironmentVariable(
-            "MLIR_DIR",
-            std.fs.path.join(b.allocator, &.{ lib_dirs.mlir_lib, "cmake", "mlir" }) catch "",
-        );
+
+        const build_shared = if (config.link_mode == .dynamic) "1" else "0";
+        cmd_build.setEnvironmentVariable("LLVM_DIR", lib_dirs.llvm_dir);
+        cmd_build.setEnvironmentVariable("MLIR_DIR", lib_dirs.mlir_dir);
+        cmd_build.setEnvironmentVariable("BUILD_SHARED", build_shared);
 
         exe.step.dependOn(&cmd_build.step);
     }
@@ -57,7 +59,7 @@ pub fn build(
     exe.addLibraryPath(.{ .cwd_relative = "src/Ch3/inst_toy/lib" });
     exe.addLibraryPath(.{ .cwd_relative = lib_dirs.mlir_lib });
 
-    if (USE_CUSTOM_LIBCXX) {
+    if (misc.use_custom_libcxx) {
         linkLibCxxAndCxxabi(exe, lib_dirs.llvm_lib, true, b.allocator) catch {
             @panic("Failed to search and link libc++ and libc++abi");
         };
@@ -72,10 +74,14 @@ pub fn build(
         exe.linkSystemLibrary("c++abi");
     }
 
-    exe.linkSystemLibrary("MLIRToy");
+    // In case the toy dialect and its C-API are dynamic linked, we should mark
+    // the toy dialect library `MLIRToy` as needed to prevent its linkage being
+    // ignored.
+    exe.linkSystemLibrary2("MLIRToy", .{ .needed = true });
     exe.linkSystemLibrary("ToyCAPI");
+
     exe.linkLibC();
-    if (!USE_CUSTOM_LIBCXX) {
+    if (!misc.use_custom_libcxx) {
         // XXX: don't use the builtin function to link `libc++`, see also the
         // comment above for the same reason.
         exe.linkLibCpp();

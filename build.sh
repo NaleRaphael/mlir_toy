@@ -11,6 +11,7 @@ MODE=${1:-"Debug"}
 # It's fine to set both LLVM_DIR and MLIR_DIR below with the same path. We use
 # both of them in case users are building with a pre-installed LLVM and a
 # self-built MLIR.
+# In $LLVM_DIR/lib, it should contain "libc++" and "libc++abi".
 LLVM_DIR=~/workspace/tool/llvm-17/out/mlir
 MLIR_DIR=~/workspace/tool/llvm-17/out/mlir
 
@@ -58,7 +59,7 @@ check_var d MLIR_DIR
 ## Build and run other chapter
 zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
-    -Dchapters=ch2 -Dbuild_dialect=true
+    -Dlink_mode=dynamic -Duse_custom_libcxx=false \
 ./zig-out/bin/toyc-ch2 ./toy_examples/Ch2/codegen.mlir --emit=mlir \
     --mlir-print-stacktrace-on-diagnostic=true \
     --mlir-print-op-on-diagnostic=true \

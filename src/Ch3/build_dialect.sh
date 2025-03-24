@@ -8,12 +8,15 @@ set -eu -o pipefail
 # https://cmake.org/cmake/help/latest/command/find_package.html#search-procedure
 DEFAULT_LLVM_DIR=~/workspace/tool/llvm-17/out/mlir
 DEFAULT_MLIR_DIR=~/workspace/tool/llvm-17/out/mlir
+DEFAULT_BUILD_SHARED=0
 
 # Root directory of LLVM (to search "LLVMConfig.cmake")
 # - We assume that libc++ is installed under this directory.
 LLVM_DIR=${LLVM_DIR:-"${DEFAULT_LLVM_DIR}"}
 # Root directory of MLIR (to search "MLIRConfig.cmake")
 MLIR_DIR=${MLIR_DIR:-"${DEFAULT_MLIR_DIR}"}
+
+BUILD_SHARED=${BUILD_SHARED:-"${BUILD_SHARED}"}
 
 # ==============================================================================
 # Prepare paths and flags
@@ -46,10 +49,14 @@ prefix_paths=(
 )
 cmake_prefix_path=$(IFS=';' ; echo ${prefix_paths[*]})
 
-# XXX: We cannot build the dialect as shared library for now, we might need to
-# come back to fix it after a stable release of LLVM/MLIR is available.
-# https://github.com/llvm/llvm-project/issues/108253
-build_shared_lib=OFF
+# XXX: It's possible to build dialect library as a shared library now, but we
+# need to:
+# - add `$MLIR_DIR/lib` to `CMAKE_INSTALL_RPATH`
+# - make sure all required MLIR libraries to link are added in
+#   `add_mlir_dialect_library()`
+# - in build.zig, mark the linkage to `libMLIRToy` as needed to avoid it being
+#   omitted.
+build_shared_lib=${BUILD_SHARED}
 
 build_dir=build_toy
 install_dir=inst_toy
@@ -98,6 +105,7 @@ if [[ ! -d ${build_dir} ]]; then
         -DCMAKE_LIBRARY_PATH="${cmake_lib_paths}" \
         -DCMAKE_INCLUDE_PATH="${cmake_inc_paths}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
+        -DCMAKE_INSTALL_RPATH="${cmake_lib_paths}" \
         -DBUILD_SHARED_LIBS=$build_shared_lib
 fi
 

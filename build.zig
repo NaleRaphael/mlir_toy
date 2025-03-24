@@ -47,6 +47,18 @@ pub fn build(b: *std.Build) !void {
             "Run `build_dialect.sh` in each chapter folder before building Zig program." ++
                 "If it's set to false, user has to run it manually. (default: true)",
         ) orelse true,
+        .link_mode = b.option(
+            std.builtin.LinkMode,
+            "link_mode",
+            "Build and link the dialect library as a static/dynamic library. " ++
+                "(default: null)",
+        ),
+        .use_custom_libcxx = b.option(
+            bool,
+            "use_custom_libcxx",
+            "Use the libc++ supplied under `$LLVM_DIR` instead of the one built by Zig.",
+        ) orelse false,
+        // TODO: this option seems not been used anymore, maybe we can remove it?
         .bin_llvm_lit = b.option(
             []const u8,
             "bin_llvm_lit",
@@ -61,10 +73,12 @@ pub fn build(b: *std.Build) !void {
     const build_config = bc.BuildConfig{
         .target = target,
         .optimize = optimize,
+        .link_mode = options.link_mode,
         .pic = true,
     };
     const misc_config = bc.MiscConfig{
         .build_dialect = options.build_dialect,
+        .use_custom_libcxx = options.use_custom_libcxx,
         .bin_llvm_lit = options.bin_llvm_lit,
     };
 
@@ -72,8 +86,10 @@ pub fn build(b: *std.Build) !void {
     const str_t = []const u8;
     const alloc = b.allocator;
     const lib_dirs = bc.LibDirs{
+        .mlir_dir = options.mlir_dir,
         .mlir_inc = try path_join(alloc, &[_]str_t{ options.mlir_dir, "include" }),
         .mlir_lib = try path_join(alloc, &[_]str_t{ options.mlir_dir, "lib" }),
+        .llvm_dir = options.llvm_dir,
         .llvm_inc = try path_join(alloc, &[_]str_t{ options.llvm_dir, "include" }),
         .llvm_lib = try path_join(alloc, &[_]str_t{ options.llvm_dir, "lib" }),
     };
