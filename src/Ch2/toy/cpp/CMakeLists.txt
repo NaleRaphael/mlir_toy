@@ -22,4 +22,5 @@ add_mlir_dialect_library(MLIRToy
 
     LINK_LIBS PUBLIC
     MLIRIR
+    MLIRParser
 )

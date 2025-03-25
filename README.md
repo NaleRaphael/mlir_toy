@@ -15,11 +15,11 @@ LLVM/MLIR internals.
 
 ## Prerequisites
 - Zig 0.13.0
-- LLVM 17
+- LLVM 17 (with `libc++`)
 
 
 ## Build
-### LLVM
+### LLVM/MLIR
 Please check out [utils/llvm/README.md](./utils/llvm/README.md).
 
 ### Zig

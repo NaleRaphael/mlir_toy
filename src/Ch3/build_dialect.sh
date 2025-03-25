@@ -15,26 +15,32 @@ DEFAULT_BUILD_SHARED=0
 LLVM_DIR=${LLVM_DIR:-"${DEFAULT_LLVM_DIR}"}
 # Root directory of MLIR (to search "MLIRConfig.cmake")
 MLIR_DIR=${MLIR_DIR:-"${DEFAULT_MLIR_DIR}"}
-
+# Build this Toy dialect as shared library or not
 BUILD_SHARED=${BUILD_SHARED:-"${BUILD_SHARED}"}
 
 # ==============================================================================
 # Prepare paths and flags
 # - To maximize the compatibility to Zig, we would compile this dialect library
 #   with `libc++` rather than `libstdc++`.
-lib_paths=( "${LLVM_DIR}/lib" )
-inc_paths=( "${LLVM_DIR}/include/c++/v1" )
+lib_paths=(
+    "${LLVM_DIR}/lib"
+    "${MLIR_DIR}/lib"
+)
+inc_paths=(
+    "${LLVM_DIR}/include/c++/v1"
+    "${MLIR_DIR}/include"
+)
 
 cmake_lib_paths=$(IFS=';' ; echo "${lib_paths[*]}")
 cmake_inc_paths=$(IFS=';' ; echo "${inc_paths[*]}")
 
 cxx_flags=(
     "-stdlib=libc++"
-    "-I ${inc_paths[0]}"
+    "-I ${LLVM_DIR}/include/c++/v1"
 )
 ld_flags=(
     "-L ${lib_paths[0]}"
-    "-Wl,-rpath-link ${lib_paths[0]}"
+    "-Wl,-rpath-link ${LLVM_DIR}/lib"
     "-lc++"
     "-lc++abi"
 )
@@ -47,7 +53,7 @@ prefix_paths=(
     ${LLVM_DIR}
     ${MLIR_DIR}
 )
-cmake_prefix_path=$(IFS=';' ; echo ${prefix_paths[*]})
+cmake_prefix_path=$(IFS=';' ; echo "${prefix_paths[*]}")
 
 # XXX: It's possible to build dialect library as a shared library now, but we
 # need to:
@@ -57,6 +63,14 @@ cmake_prefix_path=$(IFS=';' ; echo ${prefix_paths[*]})
 # - in build.zig, mark the linkage to `libMLIRToy` as needed to avoid it being
 #   omitted.
 build_shared_lib=${BUILD_SHARED}
+
+install_rpath=( "\$ORIGIN/../lib" )
+if [[ ${build_shared_lib} -eq 1 ]]; then
+    install_rpath+=( "${LLVM_DIR}/lib" )
+    install_rpath+=( "${MLIR_DIR}/lib" )
+fi
+
+cmake_install_rpath=$(IFS=';' ; echo "${install_rpath[*]}")
 
 build_dir=build_toy
 install_dir=inst_toy
@@ -105,7 +119,7 @@ if [[ ! -d ${build_dir} ]]; then
         -DCMAKE_LIBRARY_PATH="${cmake_lib_paths}" \
         -DCMAKE_INCLUDE_PATH="${cmake_inc_paths}" \
         -DCMAKE_EXPORT_COMPILE_COMMANDS=1 \
-        -DCMAKE_INSTALL_RPATH="${cmake_lib_paths}" \
+        -DCMAKE_INSTALL_RPATH="${cmake_install_rpath}" \
         -DBUILD_SHARED_LIBS=$build_shared_lib
 fi
 

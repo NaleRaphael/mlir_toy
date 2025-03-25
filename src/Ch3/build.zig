@@ -1,6 +1,9 @@
 const std = @import("std");
 const bc = @import("../../build_common.zig");
 
+const CHAPTER_N = "3";
+const THIS_DIR = "src/Ch" ++ CHAPTER_N;
+
 const MLIR_LIBS = [_][]const u8{
     "Analysis",
     "IR",
@@ -8,7 +11,6 @@ const MLIR_LIBS = [_][]const u8{
     "SideEffectInterfaces",
     "Transforms",
     "Support",
-    "Dialect",
 };
 
 const MLIR_CAPI_LIBS = [_][]const u8{
@@ -19,11 +21,6 @@ const LLVM_LIBS = [_][]const u8{
     "Support",
 };
 
-// NOTE: for the dialect library, it's currently fine to link against to Zig's
-// libc++ if it's already built with LLVM's libc++. But we keep this option
-// available in case we want to link to a custom built libc++ for any reason.
-// const USE_CUSTOM_LIBCXX = true;
-
 pub fn build(
     b: *std.Build,
     config: bc.BuildConfig,
@@ -31,18 +28,20 @@ pub fn build(
     misc: bc.MiscConfig,
 ) *std.Build.Step.Compile {
     const exe = b.addExecutable(.{
-        .name = "toyc-ch3",
-        .root_source_file = b.path("src/Ch3/toyc.zig"),
+        .name = "toyc-ch" ++ CHAPTER_N,
+        .root_source_file = b.path(THIS_DIR ++ "/toyc.zig"),
         .target = config.target,
         .optimize = config.optimize,
-        .linkage = config.link_mode,
         .pic = config.pic,
+        // XXX: libc needs to be static linked when it's set by `linkLibC()`,
+        // so we don't set the linkage type here.
+        // .linkage = config.link_mode,
     });
 
     if (misc.build_dialect) {
         // Build dialect before building this program
         const cmd_build = b.addSystemCommand(&.{"./build_dialect.sh"});
-        cmd_build.setCwd(b.path("src/Ch3"));
+        cmd_build.setCwd(b.path(THIS_DIR));
         cmd_build.has_side_effects = true;
 
         const build_shared = if (config.link_mode == .dynamic) "1" else "0";
@@ -53,37 +52,35 @@ pub fn build(
         exe.step.dependOn(&cmd_build.step);
     }
 
-    exe.addIncludePath(.{ .cwd_relative = "src/Ch3" });
+    exe.addIncludePath(.{ .cwd_relative = THIS_DIR });
     exe.addIncludePath(.{ .cwd_relative = lib_dirs.mlir_inc });
 
-    exe.addLibraryPath(.{ .cwd_relative = "src/Ch3/inst_toy/lib" });
+    exe.addLibraryPath(.{ .cwd_relative = THIS_DIR ++ "/inst_toy/lib" });
     exe.addLibraryPath(.{ .cwd_relative = lib_dirs.mlir_lib });
-
-    if (misc.use_custom_libcxx) {
-        linkLibCxxAndCxxabi(exe, lib_dirs.llvm_lib, true, b.allocator) catch {
-            @panic("Failed to search and link libc++ and libc++abi");
-        };
-    } else {
-        // XXX: once using `linkSystemLibrary()`, zig will normalize any
-        // `libc++`-like query to its own `libc++`. So we cannot use this
-        // approach when we want to link against to custom `libc++`.
-        // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Target.zig#L2742-L2748
-        // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Build/Module.zig#L436-L439
-        // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Build/Step/Compile.zig#L1349-L1351
-        exe.linkSystemLibrary("c++");
-        exe.linkSystemLibrary("c++abi");
-    }
 
     // In case the toy dialect and its C-API are dynamic linked, we should mark
     // the toy dialect library `MLIRToy` as needed to prevent its linkage being
     // ignored.
-    exe.linkSystemLibrary2("MLIRToy", .{ .needed = true });
-    exe.linkSystemLibrary("ToyCAPI");
-
+    const link_cfg = std.Build.Module.LinkSystemLibraryOptions{
+        .needed = true,
+        .preferred_link_mode = config.link_mode orelse .dynamic,
+    };
+    exe.linkSystemLibrary2("MLIRToy", link_cfg);
+    exe.linkSystemLibrary2("ToyCAPI", link_cfg);
     exe.linkLibC();
-    if (!misc.use_custom_libcxx) {
-        // XXX: don't use the builtin function to link `libc++`, see also the
-        // comment above for the same reason.
+
+    // XXX: once using `linkSystemLibrary()` or `linkLibCpp()`, zig will
+    // normalize any `libc++`-like query to link against its own `libc++`. So
+    // we cannot use this approach when we want to link against the custom one.
+    // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Target.zig#L2742-L2748
+    // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Build/Module.zig#L436-L439
+    // - https://github.com/ziglang/zig/blob/0.13.0/lib/std/Build/Step/Compile.zig#L1349-L1351
+    if (misc.use_custom_libcxx) {
+        const link_mode = config.link_mode orelse .dynamic;
+        linkCustomLibCxx(exe, lib_dirs.llvm_lib, link_mode, b.allocator) catch {
+            @panic("Failed to search and link libc++, libc++abi, and libunwind");
+        };
+    } else {
         exe.linkLibCpp();
     }
 
@@ -93,69 +90,80 @@ pub fn build(
     return exe;
 }
 
-fn linkLibCxxAndCxxabi(
+fn linkCustomLibCxx(
     exe: *std.Build.Step.Compile,
     search_root: []const u8,
-    prefer_dynlib: bool,
+    link_mode: std.builtin.LinkMode,
     allocator: std.mem.Allocator,
 ) !void {
+    var targets = std.BufSet.init(allocator);
+    var candidates = std.ArrayList([]const u8).init(allocator);
+    defer {
+        for (candidates.items) |v| {
+            allocator.free(v);
+        }
+        candidates.deinit();
+        defer targets.deinit();
+    }
+
+    try targets.insert("libc++");
+    try targets.insert("libc++abi");
+    try targets.insert("libunwind");
+
     const dir = try std.fs.openDirAbsolute(search_root, .{
         .iterate = true,
-        .access_sub_paths = true,
+        .access_sub_paths = false,
         .no_follow = false,
     });
-    var walker = try dir.walk(allocator);
-    defer walker.deinit();
 
-    var libcxx_candiates = std.ArrayList([]const u8).init(allocator);
-    var libcxxabi_candiates = std.ArrayList([]const u8).init(allocator);
-    defer {
-        for (libcxx_candiates.items, libcxxabi_candiates.items) |v1, v2| {
-            allocator.free(v1);
-            allocator.free(v2);
+    const build_target = exe.rootModuleTarget();
+    const suffix = blk: {
+        if (link_mode == .dynamic) {
+            break :blk build_target.os.tag.dynamicLibSuffix();
+        } else {
+            break :blk build_target.os.tag.staticLibSuffix(build_target.abi);
         }
-        libcxx_candiates.deinit();
-        libcxxabi_candiates.deinit();
-    }
+    };
 
-    while (try walker.next()) |entry| {
-        if (std.mem.startsWith(u8, entry.basename, "libc++")) {
-            const stem = std.fs.path.stem(entry.basename);
-            if (std.mem.eql(u8, stem, "libc++")) {
-                const path = try allocator.dupe(u8, entry.path);
-                try libcxx_candiates.append(path);
-                continue;
-            }
-            if (std.mem.eql(u8, stem, "libc++abi")) {
-                const path = try allocator.dupe(u8, entry.path);
-                try libcxxabi_candiates.append(path);
-                continue;
-            }
+    var dir_iter = dir.iterate();
+
+    while (try dir_iter.next()) |entry| {
+        const stem = std.fs.path.stem(entry.name);
+        const extension = std.fs.path.extension(entry.name);
+        if (targets.contains(stem) and std.mem.eql(u8, extension, suffix)) {
+            const name = try allocator.dupe(u8, entry.name);
+            try candidates.append(name);
         }
     }
 
-    const suffix = if (prefer_dynlib) ".so" else ".a";
+    // Provide details for easier debugging
+    if (candidates.items.len != targets.count()) {
+        std.debug.print("Expect {d} libraries to find under {s}, found {d}\n", .{
+            targets.count(),
+            search_root,
+            candidates.items.len,
+        });
+        std.debug.print("Expected: ", .{});
 
-    for (libcxx_candiates.items) |v| {
-        if (std.mem.endsWith(u8, v, suffix)) {
-            const lib_path = try std.fs.path.join(allocator, &.{ search_root, v });
-            exe.addObjectFile(.{ .cwd_relative = lib_path });
-            break;
+        var iter = targets.iterator();
+        while (iter.next()) |v| {
+            const name = try std.mem.concat(allocator, u8, &.{ v.*, suffix });
+            std.debug.print("{s} ", .{name});
         }
-    } else @panic("cannot link to libc++ because it's not found");
+        std.debug.print("\n", .{});
 
-    for (libcxxabi_candiates.items) |v| {
-        if (std.mem.endsWith(u8, v, suffix)) {
-            const lib_path = try std.fs.path.join(allocator, &.{ search_root, v });
-            exe.addObjectFile(.{ .cwd_relative = lib_path });
-            break;
+        std.debug.print("Found: ", .{});
+        for (candidates.items) |v| {
+            std.debug.print("{s} ", .{v});
         }
-    } else @panic("cannot link to libc++abi because it's not found");
+        std.debug.print("\n", .{});
+        return error.FailedToLinkCustomLibCxx;
+    }
 
-    std.debug.assert(libcxx_candiates.items.len > 0);
-    const libcxx_dir = try std.fs.path.join(
-        allocator,
-        &.{ search_root, std.fs.path.dirname(libcxx_candiates.items[0]) orelse "" },
-    );
-    exe.addLibraryPath(.{ .cwd_relative = libcxx_dir });
+    for (candidates.items) |v| {
+        const lib_path = try std.fs.path.join(allocator, &.{ search_root, v });
+        exe.addObjectFile(.{ .cwd_relative = lib_path });
+    }
+
+    exe.addLibraryPath(.{ .cwd_relative = search_root });
 }
