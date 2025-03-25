@@ -5,6 +5,7 @@ const parser = @import("toy/parser.zig");
 const MLIRGen = @import("toy/MLIRGen.zig");
 const c_api = @import("toy/c_api.zig");
 const argparse = @import("argparse.zig");
+const common_options = @import("common_options.zig");
 
 const c = c_api.c;
 const Allocator = std.mem.Allocator;
@@ -76,64 +77,44 @@ pub const ArgTmpl = struct {
     file_path: ArgType("file_path", []const u8, "", "Input file"),
     input_type: ArgType("--input_type", InputType, InputType.toy, "Input type"),
     emit_action: ArgType("--emit", Action, Action.none, "Output kind"),
-
-    // Some CLI options to help debugging (see also [1])
-    // [1]: https://mlir.llvm.org/getting_started/Debugging/
-
-    // ---------- AsmPrinterOptions ----------
-    // Note that there are some misalignments between the following 2 impls.
-    // [1]: https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/AsmPrinter.cpp#L131-L171
-    // [2]: https://github.com/llvm/llvm-project/blob/release/17.x/mlir/include/mlir/IR/OperationSupport.h#L1100-L1186
-
-    // XXX: this one is not configurable via `mlir::OpPrintingFlags` in LLVM 17.
-    // https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/AsmPrinter.cpp#L298-L311
-    // mlir_print_elementsattrs_with_hex_if_larger: ArgType("--mlir-print-elementsattrs-with-hex-if-larger", i64, -1,
-    //     \\Print DenseElementsAttrs with a hex string that have
-    //     \\more elements than the given upper limit (use -1 to disable)
-    // ),
-
-    // XXX: we use -1 to disable this feature
-    mlir_elide_elementsattrs_if_larger: ArgType("--mlir-elide-elementsattrs-if-larger", i64, -1,
-        \\Elide ElementsAttrs with "..." that have
-        \\more elements than the given upper limit (use -1 to disable)
-    ),
-    mlir_print_debuginfo: ArgType("--mlir-print-debuginfo", bool, false,
-        \\Print pretty debug info in MLIR output
-    ),
-    mlir_pretty_debuginfo: ArgType("--mlir-pretty-debuginfo", bool, false,
-        \\Print pretty debug info in MLIR output
-    ),
-    mlir_print_op_generic: ArgType("--mlir-print-op-generic", bool, false,
-        \\Print the generic op form
-    ),
-    mlir_print_assume_verified: ArgType("--mlir-print-assume-verified", bool, false,
-        \\Skip op verification when using custom printers
-    ),
-    mlir_print_local_scope: ArgType("--mlir-print-local-scope", bool, false,
-        \\Print with local scope and inline information (eliding
-        \\aliases for attributes, types, and locations
-    ),
-    mlir_print_value_users: ArgType("--mlir-print-value-users", bool, false,
-        \\Print users of operation results and block arguments as a comment
-    ),
-
-    // ---------- MLIRContextOptions ----------
-    // ref: https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/MLIRContext.cpp#L58-L74
-    mlir_disable_threading: ArgType("--mlir-disable-threading", bool, false,
-        \\Disable multi-threading within MLIR, overrides any
-        \\further call to MLIRContext::enableMultiThreading()
-    ),
-    mlir_print_op_on_diagnostic: ArgType("--mlir-print-op-on-diagnostic", bool, true,
-        \\When a diagnostic is emitted on an operation, also print
-        \\the operation as an attached note
-    ),
-    mlir_print_stacktrace_on_diagnostic: ArgType("--mlir-print-stacktrace-on-diagnostic", bool, false,
-        \\When a diagnostic is emitted, also print the stack trace
-        \\as an attached note
-    ),
 };
 
-pub fn initOptions(comptime OptionType: type, args: ArgTmpl) OptionType {
+pub const CLIOptions: type = mergeOptions(&.{
+    ArgTmpl,
+    common_options.ArgAsmPrinterOptions,
+    common_options.ArgMLIRContextOptions,
+});
+
+pub fn mergeOptions(comptime opt_types: []const type) type {
+    return comptime blk: {
+        var num_fields: usize = 0;
+        for (opt_types) |t| {
+            const ti = @typeInfo(t);
+            num_fields += ti.Struct.fields.len;
+        }
+
+        var fields: [num_fields]std.builtin.Type.StructField = undefined;
+        var i: usize = 0;
+        for (opt_types) |t| {
+            const ti = @typeInfo(t);
+            for (ti.Struct.fields) |f| {
+                fields[i] = f;
+                i += 1;
+            }
+        }
+
+        const merged_type = @Type(std.builtin.Type{ .Struct = .{
+            .layout = .auto,
+            .fields = &fields,
+            .decls = &.{},
+            .is_tuple = false,
+            .backing_integer = null,
+        } });
+        break :blk merged_type;
+    };
+}
+
+pub fn initOptions(comptime OptionType: type, args: CLIOptions) OptionType {
     var opts = OptionType{};
     inline for (std.meta.fields(OptionType)) |f| {
         const arg = @field(args, f.name);
@@ -226,7 +207,7 @@ pub fn main() !void {
     const argv = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, argv);
 
-    var arg_parser = argparse.ArgumentParser(ArgTmpl).init("toyc-ch2");
+    var arg_parser = argparse.ArgumentParser(CLIOptions).init("toyc-ch2");
     const args = arg_parser.parse(argv) catch |err| switch (err) {
         ArgParseError.EndWithPrintingHelp => std.process.exit(0),
         else => {
