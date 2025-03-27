@@ -73,16 +73,47 @@ pub const MLIRContextOptions = struct {
     }
 };
 
+pub const PassManagerOptions = struct {
+    // XXX: these 2 options are not used for now. But we can implement a C-API
+    // to enable related features with `enableCrashReproducerGeneration()`.
+    mlir_pass_pipeline_crash_reproducer: []const u8 = "",
+    mlir_pass_pipeline_local_reproducer: bool = false,
+
+    // mlir_print_ir_before: []const u8 = "",
+    // mlir_print_ir_after: []const u8 = "",
+
+    // NOTE: when enabling these flags, make sure `--mlir-disable-threading=true` is also set.
+    mlir_print_ir_before_all: bool = false,
+    mlir_print_ir_after_all: bool = false,
+    mlir_print_ir_after_change: bool = false,
+    mlir_print_ir_after_failure: bool = false,
+    mlir_print_ir_module_scope: bool = false,
+
+    pub fn config(self: @This(), pm: c.MlirPassManager, flags: c.MlirOpPrintingFlags) void {
+        c.mlirExtPassManagerEnableIRPrinting(
+            pm,
+            self.mlir_print_ir_before_all,
+            self.mlir_print_ir_after_all,
+            self.mlir_print_ir_module_scope,
+            self.mlir_print_ir_after_change,
+            self.mlir_print_ir_after_failure,
+            flags,
+        );
+    }
+};
+
 pub const ArgTmpl = struct {
     file_path: ArgType("file_path", []const u8, "", "Input file"),
     input_type: ArgType("--input_type", InputType, InputType.toy, "Input type"),
     emit_action: ArgType("--emit", Action, Action.none, "Output kind"),
+    enable_opt: ArgType("--opt", bool, false, "Enable optimizations"),
 };
 
 pub const CLIOptions: type = mergeOptions(&.{
     ArgTmpl,
     common_options.ArgAsmPrinterOptions,
     common_options.ArgMLIRContextOptions,
+    common_options.ArgPassManagerOptions,
 });
 
 pub fn mergeOptions(comptime opt_types: []const type) type {
@@ -139,21 +170,41 @@ pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
     try ast_dumper.dump(module_ast);
 }
 
+pub const MLIRContextHolder = struct {
+    ctx: c.MlirContext,
+    opflags: c.MlirOpPrintingFlags,
+
+    const Self = @This();
+
+    pub fn init(
+        mlir_context_opts: MLIRContextOptions,
+        asm_printer_opts: AsmPrinterOptions,
+    ) Self {
+        // NOTE: multithreading supports is enabled by default
+        const ctx = c.mlirContextCreateWithThreading(!mlir_context_opts.mlir_disable_threading);
+        const opflags = c.mlirOpPrintingFlagsCreate();
+
+        mlir_context_opts.config(ctx);
+        asm_printer_opts.config(opflags);
+
+        return Self{ .ctx = ctx, .opflags = opflags };
+    }
+
+    pub fn deinit(self: *Self) void {
+        c.mlirContextDestroy(self.ctx);
+        c.mlirOpPrintingFlagsDestroy(self.opflags);
+    }
+};
+
 pub fn dumpMLIRFromToy(
     file_path: []const u8,
     allocator: Allocator,
-    mlir_context_opts: MLIRContextOptions,
-    asm_printer_opts: AsmPrinterOptions,
+    holder: MLIRContextHolder,
+    enable_opt: bool,
+    pm_opts: PassManagerOptions,
 ) !void {
-    // NOTE: multithreading supports is enabled by default
-    const ctx = c.mlirContextCreateWithThreading(!mlir_context_opts.mlir_disable_threading);
-    defer c.mlirContextDestroy(ctx);
-
-    const opflags = c.mlirOpPrintingFlagsCreate();
-    defer c.mlirOpPrintingFlagsDestroy(opflags);
-
-    mlir_context_opts.config(ctx);
-    asm_printer_opts.config(opflags);
+    const ctx = holder.ctx;
+    const opflags = holder.opflags;
 
     // Remember to load Toy dialect
     try c_api.loadToyDialect(ctx);
@@ -169,24 +220,45 @@ pub fn dumpMLIRFromToy(
     };
 
     const module_op = c.mlirModuleGetOperation(module);
+
+    if (enable_opt) {
+        const name = c.mlirIdentifierStr(c.mlirOperationGetName(module_op));
+        const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
+        defer c.mlirPassManagerDestroy(pm);
+
+        const opm_toyfunc = c.mlirPassManagerGetNestedUnder(
+            pm,
+            c.mlirStringRefCreateFromCString("toy.func"),
+        );
+
+        pm_opts.config(pm, opflags);
+
+        // `mlirCreateTransformsCanonicalizer` is defined in "mlir-c/Transform.h"
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirCreateTransformsCanonicalizer(),
+        );
+
+        const result = c.mlirPassManagerRunOnOp(pm, module_op);
+        if (c.mlirLogicalResultIsFailure(result)) {
+            std.debug.print("failed to run canonicalizer pass\n", .{});
+        }
+    }
+
     c.mlirOperationPrintWithFlags(module_op, opflags, c_api.printToStderr, null);
 }
 
 pub fn dumpMLIRFromMLIR(
     file_path: []const u8,
     allocator: Allocator,
-    mlir_context_opts: MLIRContextOptions,
-    asm_printer_opts: AsmPrinterOptions,
+    holder: MLIRContextHolder,
+    enable_opt: bool,
+    pm_opts: PassManagerOptions,
 ) !void {
     _ = allocator;
-    const ctx = c.mlirContextCreateWithThreading(!mlir_context_opts.mlir_disable_threading);
-    defer c.mlirContextDestroy(ctx);
 
-    const opflags = c.mlirOpPrintingFlagsCreate();
-    defer c.mlirOpPrintingFlagsDestroy(opflags);
-
-    mlir_context_opts.config(ctx);
-    asm_printer_opts.config(opflags);
+    const ctx = holder.ctx;
+    const opflags = holder.opflags;
 
     try c_api.loadToyDialect(ctx);
 
@@ -194,6 +266,29 @@ pub fn dumpMLIRFromMLIR(
     const module_op = c.mlirExtParseSourceFileAsModuleOp(ctx, fp_strref);
     if (c.mlirOperationIsNull(module_op)) {
         return error.FailedToParseMLIR;
+    }
+
+    if (enable_opt) {
+        const name = c.mlirIdentifierStr(c.mlirOperationGetName(module_op));
+        const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
+        defer c.mlirPassManagerDestroy(pm);
+
+        const opm_toyfunc = c.mlirPassManagerGetNestedUnder(
+            pm,
+            c.mlirStringRefCreateFromCString("toy.func"),
+        );
+
+        pm_opts.config(pm, opflags);
+
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirCreateTransformsCanonicalizer(),
+        );
+
+        const result = c.mlirPassManagerRunOnOp(pm, module_op);
+        if (c.mlirLogicalResultIsFailure(result)) {
+            std.debug.print("failed to run canonicalizer pass\n", .{});
+        }
     }
 
     c.mlirOperationPrintWithFlags(module_op, opflags, c_api.printToStderr, null);
@@ -219,17 +314,22 @@ pub fn main() !void {
     const file_path = args.file_path.value;
     const input_type = args.input_type.value;
     const action = args.emit_action.value;
+    const enable_opt = args.enable_opt.value;
 
     const asm_printer_opts = initOptions(AsmPrinterOptions, args);
     const mlir_context_opts = initOptions(MLIRContextOptions, args);
+    const pass_manager_opts = initOptions(PassManagerOptions, args);
 
     switch (action) {
         Action.ast => try dumpAST(file_path, allocator),
         Action.mlir => {
+            var ctx_holder = MLIRContextHolder.init(mlir_context_opts, asm_printer_opts);
+            defer ctx_holder.deinit();
+
             if (input_type != InputType.mlir and !std.mem.endsWith(u8, file_path, ".mlir")) {
-                try dumpMLIRFromToy(file_path, allocator, mlir_context_opts, asm_printer_opts);
+                try dumpMLIRFromToy(file_path, allocator, ctx_holder, enable_opt, pass_manager_opts);
             } else {
-                try dumpMLIRFromMLIR(file_path, allocator, mlir_context_opts, asm_printer_opts);
+                try dumpMLIRFromMLIR(file_path, allocator, ctx_holder, enable_opt, pass_manager_opts);
             }
         },
         Action.none => {

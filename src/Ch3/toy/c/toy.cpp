@@ -2,8 +2,10 @@
 #include "toy/cpp/Dialect.h"
 #include "toy/cpp/Helper.h"
 #include "mlir/CAPI/Registration.h"
+#include "mlir/CAPI/Pass.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
+#include "mlir/Pass/PassManager.h"
 
 // wrap() and unwrap() is defined in "mlir/CAPI/Wrap.h", and it's included by
 // "mlir/CAPI/Support.h" -> "mlir/CAPI/Registration.h".
@@ -254,27 +256,12 @@ void mlirToyOperationDump(MlirToyFuncOp op) {
 //===----------------------------------------------------------------------===//
 // Extensions
 //===----------------------------------------------------------------------===//
-void mlirExtContextPrintOpOnDiagnostic(MlirContext ctx, bool enable) {
-    unwrap(ctx)->printOpOnDiagnostic(enable);
-}
-
-void mlirExtContextSetPrintStackTraceOnDiagnostic(MlirContext ctx, bool enable) {
-    unwrap(ctx)->printStackTraceOnDiagnostic(enable);
-}
-
-void mlirExtOpPrintingFlagsPrintValueUsers(MlirOpPrintingFlags flags) {
-    // XXX: In LLVM 17, this setter does not take a `enable` flag. Once it's
-    // called, `printValueUsersFlag` will be enabled.
-    // https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/AsmPrinter.cpp#L247-L251
-    unwrap(flags)->printValueUsers();
+void mlirExtModuleDump(MlirModule module) {
+    unwrap(module)->dump();
 }
 
 void mlirExtOperationEmitError(MlirOperation op, const char *message) {
     unwrap(op)->emitError() << message;
-}
-
-void mlirExtModuleDump(MlirModule module) {
-    unwrap(module)->dump();
 }
 
 bool mlirExtBlockIsEmpty(MlirBlock block) {
@@ -297,4 +284,50 @@ MlirOperation mlirExtParseSourceFileAsModuleOp(
     llvm::StringRef _file_path = unwrap(file_path);
     auto module = mlir::parseSourceFile<mlir::ModuleOp>(_file_path, _ctx).release();
     return wrap(module.getOperation());
+}
+
+//===----------------------------------------------------------------------===//
+// Extensions for CLI options setting
+//===----------------------------------------------------------------------===//
+void mlirExtContextPrintOpOnDiagnostic(MlirContext ctx, bool enable) {
+    unwrap(ctx)->printOpOnDiagnostic(enable);
+}
+
+void mlirExtContextSetPrintStackTraceOnDiagnostic(MlirContext ctx, bool enable) {
+    unwrap(ctx)->printStackTraceOnDiagnostic(enable);
+}
+
+void mlirExtOpPrintingFlagsPrintValueUsers(MlirOpPrintingFlags flags) {
+    // XXX: In LLVM 17, this setter does not take a `enable` flag. Once it's
+    // called, `printValueUsersFlag` will be enabled.
+    // https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/AsmPrinter.cpp#L247-L251
+    unwrap(flags)->printValueUsers();
+}
+
+// The builtin API `mlirPassManagerEnableIRPrinting` doesn't support
+// fine-grained control of those features via C-API until LLVM 20. So we made
+// this extension for it.
+// https://github.com/llvm/llvm-project/blob/release/20.x/mlir/lib/CAPI/IR/Pass.cpp#L47-L72
+void mlirExtPassManagerEnableIRPrinting(
+    MlirPassManager pm, bool print_before, bool print_after,
+    bool print_module_scope, bool print_after_only_on_change,
+    bool print_after_only_on_failure, MlirOpPrintingFlags flags
+) {
+    typedef std::function<bool(mlir::Pass *, mlir::Operation *)> cfg_t;
+    cfg_t shouldPrintBeforePass = [print_before](mlir::Pass *, mlir::Operation *) {
+        return print_before;
+    };
+    cfg_t shouldPrintAfterPass = [print_after](mlir::Pass *, mlir::Operation *) {
+        return print_after;
+    };
+
+    unwrap(pm)->enableIRPrinting(
+        shouldPrintBeforePass,
+        shouldPrintAfterPass,
+        print_module_scope,
+        print_after_only_on_change,
+        print_after_only_on_failure,
+        llvm::errs(),
+        *unwrap(flags)
+    );
 }

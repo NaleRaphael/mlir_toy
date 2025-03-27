@@ -13,6 +13,8 @@ pub const c = @cImport({
     @cInclude("mlir-c/BuiltinTypes.h");
     @cInclude("mlir-c/BuiltinAttributes.h");
     @cInclude("mlir-c/Diagnostics.h");
+    @cInclude("mlir-c/Pass.h");
+    @cInclude("mlir-c/Transforms.h");
 });
 
 // XXX: It's generally not recommended to use another `@cImport()` here, but I

@@ -15,6 +15,7 @@ const MLIR_LIBS = [_][]const u8{
 
 const MLIR_CAPI_LIBS = [_][]const u8{
     "IR",
+    "Transforms",
 };
 
 const LLVM_LIBS = [_][]const u8{

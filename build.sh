@@ -57,13 +57,29 @@ check_var d MLIR_DIR
 # ./zig-out/bin/toyc-ch1 ./toy_examples/Ch1/ast.toy --emit=ast
 
 ## Build and run other chapter
+### Ch2
+# zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
+#     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
+#     -Dlink_mode=dynamic -Duse_custom_libcxx=false \
+#     -Dchapters=ch2 -Dbuild_dialect=true
+# ./zig-out/bin/toyc-ch2 ./toy_examples/Ch2/codegen.toy --emit=mlir \
+#     --mlir-print-stacktrace-on-diagnostic=true \
+#     --mlir-print-op-on-diagnostic=true \
+#     --mlir-print-op-generic=false
+
+### Ch3
 zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
     -Dlink_mode=dynamic -Duse_custom_libcxx=false \
-./zig-out/bin/toyc-ch2 ./toy_examples/Ch2/codegen.mlir --emit=mlir \
+    -Dchapters=ch3 -Dbuild_dialect=true
+./zig-out/bin/toyc-ch3 ./toy_examples/Ch3/trivial_reshape.toy --emit=mlir \
+    --opt=true \
     --mlir-print-stacktrace-on-diagnostic=true \
     --mlir-print-op-on-diagnostic=true \
-    --mlir-print-op-generic=false
+    --mlir-print-op-generic=false \
+    --mlir-print-ir-before-all=true \
+    --mlir-print-ir-after-all=true \
+    --mlir-disable-threading=true
 
 # ## Build and run dialect sample
 # zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
