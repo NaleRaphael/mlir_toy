@@ -122,7 +122,7 @@ MLIR_CAPI_EXPORTED void mlirExtModuleDump(MlirModule module);
 MLIR_CAPI_EXPORTED void mlirExtOperationEmitError(MlirOperation op, const char *message);
 MLIR_CAPI_EXPORTED bool mlirExtBlockIsEmpty(MlirBlock block);
 MLIR_CAPI_EXPORTED MlirOperation mlirExtBlockGetLastOperation(MlirBlock block);
-MLIR_CAPI_EXPORTED MlirLogicalResult mlirVerify(MlirOperation op);
+MLIR_CAPI_EXPORTED MlirLogicalResult mlirExtVerify(MlirOperation op);
 
 MLIR_CAPI_EXPORTED MlirOperation mlirExtParseSourceFileAsModuleOp(
     MlirContext ctx, MlirStringRef file_path

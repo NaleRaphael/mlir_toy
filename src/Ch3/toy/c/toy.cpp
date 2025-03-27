@@ -273,7 +273,7 @@ MlirOperation mlirExtBlockGetLastOperation(MlirBlock block) {
     return wrap(&back);
 }
 
-MlirLogicalResult mlirVerify(MlirOperation op) {
+MlirLogicalResult mlirExtVerify(MlirOperation op) {
     return wrap(mlir::verify(unwrap(op)));
 }
 

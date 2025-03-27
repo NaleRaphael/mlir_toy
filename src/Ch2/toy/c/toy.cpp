@@ -254,6 +254,39 @@ void mlirToyOperationDump(MlirToyFuncOp op) {
 //===----------------------------------------------------------------------===//
 // Extensions
 //===----------------------------------------------------------------------===//
+void mlirExtModuleDump(MlirModule module) {
+    unwrap(module)->dump();
+}
+
+void mlirExtOperationEmitError(MlirOperation op, const char *message) {
+    unwrap(op)->emitError() << message;
+}
+
+bool mlirExtBlockIsEmpty(MlirBlock block) {
+    return unwrap(block)->getOperations().empty();
+}
+
+MlirOperation mlirExtBlockGetLastOperation(MlirBlock block) {
+    mlir::Operation &back = unwrap(block)->back();
+    return wrap(&back);
+}
+
+MlirLogicalResult mlirExtVerify(MlirOperation op) {
+    return wrap(mlir::verify(unwrap(op)));
+}
+
+MlirOperation mlirExtParseSourceFileAsModuleOp(
+    MlirContext ctx, MlirStringRef file_path
+) {
+    mlir::MLIRContext *_ctx = unwrap(ctx);
+    llvm::StringRef _file_path = unwrap(file_path);
+    auto module = mlir::parseSourceFile<mlir::ModuleOp>(_file_path, _ctx).release();
+    return wrap(module.getOperation());
+}
+
+//===----------------------------------------------------------------------===//
+// Extensions for CLI options setting
+//===----------------------------------------------------------------------===//
 void mlirExtContextPrintOpOnDiagnostic(MlirContext ctx, bool enable) {
     unwrap(ctx)->printOpOnDiagnostic(enable);
 }
@@ -267,34 +300,4 @@ void mlirExtOpPrintingFlagsPrintValueUsers(MlirOpPrintingFlags flags) {
     // called, `printValueUsersFlag` will be enabled.
     // https://github.com/llvm/llvm-project/blob/release/17.x/mlir/lib/IR/AsmPrinter.cpp#L247-L251
     unwrap(flags)->printValueUsers();
-}
-
-void mlirExtOperationEmitError(MlirOperation op, const char *message) {
-    unwrap(op)->emitError() << message;
-}
-
-void mlirExtModuleDump(MlirModule module) {
-    unwrap(module)->dump();
-}
-
-bool mlirExtBlockIsEmpty(MlirBlock block) {
-    return unwrap(block)->getOperations().empty();
-}
-
-MlirOperation mlirExtBlockGetLastOperation(MlirBlock block) {
-    mlir::Operation &back = unwrap(block)->back();
-    return wrap(&back);
-}
-
-MlirLogicalResult mlirVerify(MlirOperation op) {
-    return wrap(mlir::verify(unwrap(op)));
-}
-
-MlirOperation mlirExtParseSourceFileAsModuleOp(
-    MlirContext ctx, MlirStringRef file_path
-) {
-    mlir::MLIRContext *_ctx = unwrap(ctx);
-    llvm::StringRef _file_path = unwrap(file_path);
-    auto module = mlir::parseSourceFile<mlir::ModuleOp>(_file_path, _ctx).release();
-    return wrap(module.getOperation());
 }

@@ -5,73 +5,18 @@ const parser = @import("toy/parser.zig");
 const MLIRGen = @import("toy/MLIRGen.zig");
 const c_api = @import("toy/c_api.zig");
 const argparse = @import("argparse.zig");
-const common_options = @import("common_options.zig");
+const comopts = @import("common_options.zig");
 
 const c = c_api.c;
 const Allocator = std.mem.Allocator;
 const ArgType = argparse.ArgType;
 const ArgParseError = argparse.ArgParseError;
 
+const AsmPrinterOptions = comopts.AsmPrinterOptions;
+const MLIRContextOptions = comopts.MLIRContextOptions;
+
 pub const InputType = enum { toy, mlir };
 pub const Action = enum { none, ast, mlir };
-
-pub const AsmPrinterOptions = struct {
-    // TODO: set this flag if we are using LLVM > 17.
-    // mlir_print_elementsattrs_with_hex_if_larger: i64 = -1,
-    mlir_elide_elementsattrs_if_larger: i64 = -1,
-    mlir_print_debuginfo: bool = false,
-    mlir_pretty_debuginfo: bool = false,
-    mlir_print_op_generic: bool = false,
-    mlir_print_assume_verified: bool = false,
-    mlir_print_local_scope: bool = false,
-    mlir_print_value_users: bool = false,
-
-    pub fn config(self: @This(), flags: c.MlirOpPrintingFlags) void {
-        // if (self.mlir_print_elementsattrs_with_hex_if_larger > 0) {
-        //     // TODO: set this flag if we are using LLVM > 17.
-        // }
-        if (self.mlir_elide_elementsattrs_if_larger > 0) {
-            c.mlirOpPrintingFlagsElideLargeElementsAttrs(
-                flags,
-                self.mlir_elide_elementsattrs_if_larger,
-            );
-        }
-        if (self.mlir_print_op_generic) {
-            c.mlirOpPrintingFlagsPrintGenericOpForm(flags);
-        }
-        c.mlirOpPrintingFlagsEnableDebugInfo(
-            flags,
-            self.mlir_print_debuginfo,
-            self.mlir_pretty_debuginfo,
-        );
-        if (self.mlir_print_assume_verified) {
-            c.mlirOpPrintingFlagsAssumeVerified(flags);
-        }
-        if (self.mlir_print_local_scope) {
-            c.mlirOpPrintingFlagsUseLocalScope(flags);
-        }
-        if (self.mlir_print_value_users) {
-            c.mlirExtOpPrintingFlagsPrintValueUsers(flags);
-        }
-    }
-};
-
-pub const MLIRContextOptions = struct {
-    mlir_disable_threading: bool = false,
-    mlir_print_op_on_diagnostic: bool = true,
-    mlir_print_stacktrace_on_diagnostic: bool = false,
-
-    pub fn config(self: @This(), ctx: c.MlirContext) void {
-        c.mlirExtContextPrintOpOnDiagnostic(
-            ctx,
-            self.mlir_print_op_on_diagnostic,
-        );
-        c.mlirExtContextSetPrintStackTraceOnDiagnostic(
-            ctx,
-            self.mlir_print_stacktrace_on_diagnostic,
-        );
-    }
-};
 
 pub const ArgTmpl = struct {
     file_path: ArgType("file_path", []const u8, "", "Input file"),
@@ -79,49 +24,11 @@ pub const ArgTmpl = struct {
     emit_action: ArgType("--emit", Action, Action.none, "Output kind"),
 };
 
-pub const CLIOptions: type = mergeOptions(&.{
+pub const CLIOptions: type = comopts.mergeOptions(&.{
     ArgTmpl,
-    common_options.ArgAsmPrinterOptions,
-    common_options.ArgMLIRContextOptions,
+    comopts.ArgAsmPrinterOptions,
+    comopts.ArgMLIRContextOptions,
 });
-
-pub fn mergeOptions(comptime opt_types: []const type) type {
-    return comptime blk: {
-        var num_fields: usize = 0;
-        for (opt_types) |t| {
-            const ti = @typeInfo(t);
-            num_fields += ti.Struct.fields.len;
-        }
-
-        var fields: [num_fields]std.builtin.Type.StructField = undefined;
-        var i: usize = 0;
-        for (opt_types) |t| {
-            const ti = @typeInfo(t);
-            for (ti.Struct.fields) |f| {
-                fields[i] = f;
-                i += 1;
-            }
-        }
-
-        const merged_type = @Type(std.builtin.Type{ .Struct = .{
-            .layout = .auto,
-            .fields = &fields,
-            .decls = &.{},
-            .is_tuple = false,
-            .backing_integer = null,
-        } });
-        break :blk merged_type;
-    };
-}
-
-pub fn initOptions(comptime OptionType: type, args: CLIOptions) OptionType {
-    var opts = OptionType{};
-    inline for (std.meta.fields(OptionType)) |f| {
-        const arg = @field(args, f.name);
-        @field(opts, f.name) = arg.value;
-    }
-    return opts;
-}
 
 pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleAST {
     var _lexer = try lexer.Lexer.init(file_path);
@@ -140,8 +47,8 @@ pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
 }
 
 pub fn dumpMLIRFromToy(
-    file_path: []const u8,
     allocator: Allocator,
+    file_path: []const u8,
     mlir_context_opts: MLIRContextOptions,
     asm_printer_opts: AsmPrinterOptions,
 ) !void {
@@ -173,8 +80,8 @@ pub fn dumpMLIRFromToy(
 }
 
 pub fn dumpMLIRFromMLIR(
-    file_path: []const u8,
     allocator: Allocator,
+    file_path: []const u8,
     mlir_context_opts: MLIRContextOptions,
     asm_printer_opts: AsmPrinterOptions,
 ) !void {
@@ -220,16 +127,16 @@ pub fn main() !void {
     const input_type = args.input_type.value;
     const action = args.emit_action.value;
 
-    const asm_printer_opts = initOptions(AsmPrinterOptions, args);
-    const mlir_context_opts = initOptions(MLIRContextOptions, args);
+    const asm_printer_opts = comopts.initOptions(AsmPrinterOptions, args);
+    const mlir_context_opts = comopts.initOptions(MLIRContextOptions, args);
 
     switch (action) {
         Action.ast => try dumpAST(file_path, allocator),
         Action.mlir => {
             if (input_type != InputType.mlir and !std.mem.endsWith(u8, file_path, ".mlir")) {
-                try dumpMLIRFromToy(file_path, allocator, mlir_context_opts, asm_printer_opts);
+                try dumpMLIRFromToy(allocator, file_path, mlir_context_opts, asm_printer_opts);
             } else {
-                try dumpMLIRFromMLIR(file_path, allocator, mlir_context_opts, asm_printer_opts);
+                try dumpMLIRFromMLIR(allocator, file_path, mlir_context_opts, asm_printer_opts);
             }
         },
         Action.none => {

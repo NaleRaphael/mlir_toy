@@ -16,7 +16,7 @@ LLVM_DIR=${LLVM_DIR:-"${DEFAULT_LLVM_DIR}"}
 # Root directory of MLIR (to search "MLIRConfig.cmake")
 MLIR_DIR=${MLIR_DIR:-"${DEFAULT_MLIR_DIR}"}
 # Build this Toy dialect as shared library or not
-BUILD_SHARED=${BUILD_SHARED:-"${BUILD_SHARED}"}
+BUILD_SHARED=${BUILD_SHARED:-"${DEFAULT_BUILD_SHARED}"}
 
 # ==============================================================================
 # Prepare paths and flags

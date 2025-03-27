@@ -113,25 +113,26 @@ MLIR_CAPI_EXPORTED void mlirToyPrintOpCreate(
 //===----------------------------------------------------------------------===//
 MLIR_CAPI_EXPORTED void mlirToyFuncOpErase(MlirToyFuncOp func_op);
 MLIR_CAPI_EXPORTED void mlirToyOperationDump(MlirToyFuncOp op);
-MLIR_CAPI_EXPORTED void mlirModuleDump(MlirModule module);
 
 //===----------------------------------------------------------------------===//
 // Extensions
 //===----------------------------------------------------------------------===//
-MLIR_CAPI_EXPORTED void mlirExtContextPrintOpOnDiagnostic(MlirContext ctx, bool enable);
-MLIR_CAPI_EXPORTED void mlirExtContextSetPrintStackTraceOnDiagnostic(MlirContext ctx, bool enable);
-
-MLIR_CAPI_EXPORTED void mlirExtOpPrintingFlagsPrintValueUsers(MlirOpPrintingFlags flags);
-
-MLIR_CAPI_EXPORTED void mlirExtOperationEmitError(MlirOperation op, const char *message);
 MLIR_CAPI_EXPORTED void mlirExtModuleDump(MlirModule module);
+MLIR_CAPI_EXPORTED void mlirExtOperationEmitError(MlirOperation op, const char *message);
 MLIR_CAPI_EXPORTED bool mlirExtBlockIsEmpty(MlirBlock block);
 MLIR_CAPI_EXPORTED MlirOperation mlirExtBlockGetLastOperation(MlirBlock block);
-MLIR_CAPI_EXPORTED MlirLogicalResult mlirVerify(MlirOperation op);
+MLIR_CAPI_EXPORTED MlirLogicalResult mlirExtVerify(MlirOperation op);
 
 MLIR_CAPI_EXPORTED MlirOperation mlirExtParseSourceFileAsModuleOp(
     MlirContext ctx, MlirStringRef file_path
 );
+
+//===----------------------------------------------------------------------===//
+// Extensions for CLI options setting
+//===----------------------------------------------------------------------===//
+MLIR_CAPI_EXPORTED void mlirExtContextPrintOpOnDiagnostic(MlirContext ctx, bool enable);
+MLIR_CAPI_EXPORTED void mlirExtContextSetPrintStackTraceOnDiagnostic(MlirContext ctx, bool enable);
+MLIR_CAPI_EXPORTED void mlirExtOpPrintingFlagsPrintValueUsers(MlirOpPrintingFlags flags);
 
 #ifdef __cplusplus
 }

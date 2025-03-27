@@ -45,7 +45,7 @@ pub fn fromModule(self: *Self, module_ast: *ast.ModuleAST) MLIRGenError!?c.MlirM
 
     // Verify the module after it's constructed
     const module_op = c.mlirModuleGetOperation(self.module);
-    if (c.mlirLogicalResultIsFailure(c.mlirVerify(module_op))) {
+    if (c.mlirLogicalResultIsFailure(c.mlirExtVerify(module_op))) {
         c.mlirExtOperationEmitError(module_op, "module verification error");
         return null;
     }
