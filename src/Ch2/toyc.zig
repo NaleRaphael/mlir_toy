@@ -5,15 +5,15 @@ const parser = @import("toy/parser.zig");
 const MLIRGen = @import("toy/MLIRGen.zig");
 const c_api = @import("toy/c_api.zig");
 const argparse = @import("argparse.zig");
-const comopts = @import("common_options.zig");
+const com_opts = @import("common_options.zig");
 
 const c = c_api.c;
 const Allocator = std.mem.Allocator;
 const ArgType = argparse.ArgType;
 const ArgParseError = argparse.ArgParseError;
 
-const AsmPrinterOptions = comopts.AsmPrinterOptions;
-const MLIRContextOptions = comopts.MLIRContextOptions;
+const AsmPrinterOptions = com_opts.AsmPrinterOptions;
+const MLIRContextOptions = com_opts.MLIRContextOptions;
 
 pub const InputType = enum { toy, mlir };
 pub const Action = enum { none, ast, mlir };
@@ -24,10 +24,10 @@ pub const ArgTmpl = struct {
     emit_action: ArgType("--emit", Action, Action.none, "Output kind"),
 };
 
-pub const CLIOptions: type = comopts.mergeOptions(&.{
+pub const CLIOptions: type = com_opts.mergeOptions(&.{
     ArgTmpl,
-    comopts.ArgAsmPrinterOptions,
-    comopts.ArgMLIRContextOptions,
+    com_opts.ArgAsmPrinterOptions,
+    com_opts.ArgMLIRContextOptions,
 });
 
 pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleAST {
@@ -127,8 +127,8 @@ pub fn main() !void {
     const input_type = args.input_type.value;
     const action = args.emit_action.value;
 
-    const asm_printer_opts = comopts.initOptions(AsmPrinterOptions, args);
-    const mlir_context_opts = comopts.initOptions(MLIRContextOptions, args);
+    const asm_printer_opts = com_opts.initOptions(AsmPrinterOptions, args);
+    const mlir_context_opts = com_opts.initOptions(MLIRContextOptions, args);
 
     switch (action) {
         Action.ast => try dumpAST(file_path, allocator),
