@@ -1,0 +1,7 @@
+build_toy/
+inst_toy/
+
+# clangd related
+compile_commands.json
+.clangd
+.cache/
