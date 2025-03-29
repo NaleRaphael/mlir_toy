@@ -1,5 +1,6 @@
 #include "toy/c/toy.h"
 #include "toy/cpp/Dialect.h"
+#include "toy/cpp/Passes.h"
 #include "toy/cpp/Helper.h"
 #include "mlir/CAPI/Registration.h"
 #include "mlir/CAPI/Pass.h"
@@ -244,6 +245,13 @@ void mlirToyPrintOpCreate(
     mlir::Value _value = unwrap(value);
 
     builder->create<mlir::toy::PrintOp>(_loc, _value);
+}
+
+//===----------------------------------------------------------------------===//
+// Toy passes API
+//===----------------------------------------------------------------------===//
+MlirPass mlirToyCreateShapeInferencePass() {
+    return wrap(mlir::toy::createShapeInferencePass().release());
 }
 
 //===----------------------------------------------------------------------===//

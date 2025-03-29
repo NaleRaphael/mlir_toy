@@ -105,19 +105,34 @@ pub fn dumpMLIRFromToy(
         const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
         defer c.mlirPassManagerDestroy(pm);
 
-        // TODO: add inliner/shape inference/canonicalizer/CSE passes
+        pm_opts.config(pm, opflags);
+
+        // Inliner pass (added root module)
+        c.mlirPassManagerAddOwnedPass(
+            pm,
+            c.mlirCreateTransformsInliner(),
+        );
 
         const opm_toyfunc = c.mlirPassManagerGetNestedUnder(
             pm,
             c.mlirStringRefCreateFromCString("toy.func"),
         );
 
-        pm_opts.config(pm, opflags);
-
-        // `mlirCreateTransformsCanonicalizer` is defined in "mlir-c/Transform.h"
+        // ShapeInference, canonicalizer, CSE pass (for toy.funcs)
+        // Note: passes like `mlirCreateTransformsXXX` are defined in
+        // -> "mlir-c/Transform.h"
+        // -> "mlir/Transforms/Transforms.capi.h.inc" (generated after build)
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirToyCreateShapeInferencePass(),
+        );
         c.mlirOpPassManagerAddOwnedPass(
             opm_toyfunc,
             c.mlirCreateTransformsCanonicalizer(),
+        );
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirCreateTransformsCSE(),
         );
 
         const result = c.mlirPassManagerRunOnOp(pm, module_op);
@@ -154,18 +169,34 @@ pub fn dumpMLIRFromMLIR(
         const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
         defer c.mlirPassManagerDestroy(pm);
 
-        // TODO: add inliner/shape inference/canonicalizer/CSE passes
+        pm_opts.config(pm, opflags);
+
+        // Inliner pass (added root module)
+        c.mlirPassManagerAddOwnedPass(
+            pm,
+            c.mlirCreateTransformsInliner(),
+        );
 
         const opm_toyfunc = c.mlirPassManagerGetNestedUnder(
             pm,
             c.mlirStringRefCreateFromCString("toy.func"),
         );
 
-        pm_opts.config(pm, opflags);
-
+        // ShapeInference, canonicalizer, CSE pass (for toy.funcs)
+        // Note: passes like `mlirCreateTransformsXXX` are defined in
+        // -> "mlir-c/Transform.h"
+        // -> "mlir/Transforms/Transforms.capi.h.inc" (generated after build)
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirToyCreateShapeInferencePass(),
+        );
         c.mlirOpPassManagerAddOwnedPass(
             opm_toyfunc,
             c.mlirCreateTransformsCanonicalizer(),
+        );
+        c.mlirOpPassManagerAddOwnedPass(
+            opm_toyfunc,
+            c.mlirCreateTransformsCSE(),
         );
 
         const result = c.mlirPassManagerRunOnOp(pm, module_op);

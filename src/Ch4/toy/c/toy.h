@@ -113,6 +113,11 @@ MLIR_CAPI_EXPORTED void mlirToyPrintOpCreate(
 );
 
 //===----------------------------------------------------------------------===//
+// Toy passes API
+//===----------------------------------------------------------------------===//
+MLIR_CAPI_EXPORTED MlirPass mlirToyCreateShapeInferencePass();
+
+//===----------------------------------------------------------------------===//
 // Some other helper functions
 //===----------------------------------------------------------------------===//
 MLIR_CAPI_EXPORTED void mlirToyFuncOpErase(MlirToyFuncOp func_op);
