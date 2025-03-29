@@ -1,4 +1,4 @@
-# We don't have all required files as below to call `mlir_add_dialect()` (see
+# We don't have all required files as below to call `add_mlir_dialect()` (see
 # also AddMLIR.cmake), so we do what it does manually:
 # - ${dialect}{.h.inc|.cpp.inc}
 # - ${dialect}Type{.h.inc|.cpp.inc}

@@ -12,11 +12,11 @@ if [[ -z ${MODE} ]]; then
     exit 1
 fi
 
-LLVM_DIR=~/workspace/tool/llvm-17/llvm_mlir_reldeb_rtti
-MLIR_DIR=~/workspace/tool/llvm-17/llvm_mlir_reldeb_rtti
+LLVM_DIR=~/workspace/tool/llvm-17/out/mlir
+MLIR_DIR=~/workspace/tool/llvm-17/out/mlir
 
 # (optional) It's recommended to supply it in order to run a complete test
-FILECHECK_BIN=~/workspace/tool/llvm-17/llvm_mlir_reldeb_rtti/bin/FileCheck
+FILECHECK_BIN=${MLIR_DIR}/bin/FileCheck
 
 # (optional) Extra options for FileCheck, see also:
 # https://llvm.org/docs/CommandGuide/FileCheck.html
