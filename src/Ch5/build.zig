@@ -15,6 +15,10 @@ const MLIR_LIBS = [_][]const u8{
     "Support",
     "Pass",
     "CastInterfaces",
+    // Required by "mlir/Transforms/DialectConversion.h"
+    "TransformUtils",
+    // Required by "mlir/Rewrite/FrozenRewritePatternSet.h"
+    "Rewrite",
 };
 
 const MLIR_CAPI_LIBS = [_][]const u8{
@@ -24,6 +28,111 @@ const MLIR_CAPI_LIBS = [_][]const u8{
 
 const LLVM_LIBS = [_][]const u8{
     "Support",
+};
+
+const MLIR_DIALECT_LIBS = [_][]const u8{
+    "AffineAnalysis",
+    "AffineDialect",
+    "AffineTransforms",
+    "AffineTransformOps",
+    "AffineUtils",
+    "AMDGPUDialect",
+    "AMDGPUTransforms",
+    "AMDGPUUtils",
+    "AMXDialect",
+    "AMXTransforms",
+    "ArithDialect",
+    "ArithValueBoundsOpInterfaceImpl",
+    "ArithTransforms",
+    "ArithUtils",
+    "ArmNeonDialect",
+    "ArmSMEDialect",
+    "ArmSMETransforms",
+    "ArmSMEUtils",
+    "ArmSVEDialect",
+    "ArmSVETransforms",
+    "AsyncDialect",
+    "AsyncTransforms",
+    "BufferizationDialect",
+    "BufferizationTransformOps",
+    "BufferizationTransforms",
+    "ComplexDialect",
+    "ControlFlowDialect",
+    "DLTIDialect",
+    "EmitCDialect",
+    "FuncDialect",
+    "FuncTransforms",
+    "GPUDialect",
+    "GPUTransforms",
+    "GPUTransformOps",
+    "IndexDialect",
+    "IRDL",
+    "LinalgDialect",
+    "LinalgTransformOps",
+    "LinalgTransforms",
+    "LinalgUtils",
+    "LLVMIRTransforms",
+    "LLVMDialect",
+    "NVVMDialect",
+    "ROCDLDialect",
+    "MathDialect",
+    "MathTransforms",
+    "MemRefDialect",
+    "MemRefTransformOps",
+    "MemRefTransforms",
+    "MemRefUtils",
+    "MLProgramDialect",
+    "NVGPUDialect",
+    "NVGPUUtils",
+    "NVGPUTransformOps",
+    "NVGPUTransforms",
+    "OpenACCDialect",
+    "OpenMPDialect",
+    "PDLDialect",
+    "PDLInterpDialect",
+    "QuantDialect",
+    "QuantUtils",
+    "SCFDialect",
+    "SCFTransformOps",
+    "SCFTransforms",
+    "SCFUtils",
+    "ShapeDialect",
+    "ShapeOpsTransforms",
+    "SparseTensorDialect",
+    "SparseTensorTransforms",
+    "SparseTensorPipelines",
+    "SparseTensorUtils",
+    "SPIRVDialect",
+    "SPIRVModuleCombiner",
+    "SPIRVConversion",
+    "SPIRVTransforms",
+    "SPIRVUtils",
+    "TensorDialect",
+    "TensorInferTypeOpInterfaceImpl",
+    "TensorTilingInterfaceImpl",
+    "TensorTransforms",
+    "TensorTransformOps",
+    "TensorUtils",
+    "TosaDialect",
+    "TosaTransforms",
+    "TransformDialect",
+    "TransformPDLExtension",
+    "TransformDialectTransforms",
+    "TransformDialectUtils",
+    "UBDialect",
+    "VectorDialect",
+    "VectorTransforms",
+    "VectorTransformOps",
+    "VectorUtils",
+    "X86VectorDialect",
+    "X86VectorTransforms",
+    "TestDynDialect",
+    "TosaTestPasses",
+};
+
+const MLIR_EXTENSION_LIBS = [_][]const u8{
+    "FuncInlinerExtension",
+    "FuncAllExtensions",
 };
 
 pub fn build(
@@ -92,6 +201,8 @@ pub fn build(
     bc.linkLibs(exe, "MLIR", &MLIR_LIBS);
     bc.linkLibs(exe, "MLIRCAPI", &MLIR_CAPI_LIBS);
     bc.linkLibs(exe, "LLVM", &LLVM_LIBS);
+    bc.linkLibs(exe, "MLIR", &MLIR_DIALECT_LIBS);
+    bc.linkLibs(exe, "MLIR", &MLIR_EXTENSION_LIBS);
     return exe;
 }
 
