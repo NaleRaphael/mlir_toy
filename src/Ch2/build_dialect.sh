@@ -125,3 +125,4 @@ fi
 
 cmake --build $build_dir --parallel --target install
 
+ln -sfn ${build_dir}/compile_commands.json ./

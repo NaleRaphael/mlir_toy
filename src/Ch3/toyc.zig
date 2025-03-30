@@ -112,7 +112,9 @@ pub fn dumpMLIRFromToy(
 
         pm_opts.config(pm, opflags);
 
-        // `mlirCreateTransformsCanonicalizer` is defined in "mlir-c/Transform.h"
+        // Passes like `mlirCreateTransformsXXX` are defined in
+        // -> "mlir-c/Transform.h"
+        // -> "mlir/Transforms/Transforms.capi.h.inc" (generated after build)
         c.mlirOpPassManagerAddOwnedPass(
             opm_toyfunc,
             c.mlirCreateTransformsCanonicalizer(),

@@ -4,8 +4,9 @@ const bc = @import("../../build_common.zig");
 const CHAPTER_N = "5";
 const THIS_DIR = "src/Ch" ++ CHAPTER_N;
 
-// NOTE: these libs are required when we are static-linking libMLIRToy.a. But
-// they can be omitted when it's dynamic linking.
+// NOTE: these libraries are required when libMLIRToy and libToyCAPI are built
+// as static libraries, but they can be omitted if they are built as shared
+// libraries.
 const MLIR_LIBS = [_][]const u8{
     "Analysis",
     "IR",

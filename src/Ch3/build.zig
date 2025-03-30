@@ -4,6 +4,9 @@ const bc = @import("../../build_common.zig");
 const CHAPTER_N = "3";
 const THIS_DIR = "src/Ch" ++ CHAPTER_N;
 
+// NOTE: these libraries are required when libMLIRToy and libToyCAPI are built
+// as static libraries, but they can be omitted if they are built as shared
+// libraries.
 const MLIR_LIBS = [_][]const u8{
     "Analysis",
     "IR",
@@ -11,6 +14,7 @@ const MLIR_LIBS = [_][]const u8{
     "SideEffectInterfaces",
     "Transforms",
     "Support",
+    "Pass",
 };
 
 const MLIR_CAPI_LIBS = [_][]const u8{
