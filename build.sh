@@ -95,18 +95,28 @@ check_var d MLIR_DIR
 #     --mlir-print-ir-after-all=true \
 #     --mlir-disable-threading=true
 
-### Ch5
+# ### Ch5
+# zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
+#     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
+#     -Dlink_mode=dynamic -Duse_custom_libcxx=false \
+#     -Dchapters=ch5 -Dbuild_dialect=true
+# ./zig-out/bin/toyc-ch5 ./toy_examples/Ch5/affine-lowering.mlir --emit=mlir_affine \
+#     --opt=true \
+#     --mlir-print-stacktrace-on-diagnostic=true \
+#     --mlir-print-op-on-diagnostic=true \
+#     --mlir-print-op-generic=false \
+#     --mlir-print-ir-before-all=true \
+#     --mlir-print-ir-after-all=true \
+#     --mlir-disable-threading=true
+
+### Ch6
 zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
     -Dlink_mode=dynamic -Duse_custom_libcxx=false \
-    -Dchapters=ch5 -Dbuild_dialect=true
-./zig-out/bin/toyc-ch5 ./toy_examples/Ch5/affine-lowering.mlir --emit=mlir_affine \
+    -Dchapters=ch6 -Dbuild_dialect=true
+./zig-out/bin/toyc-ch6 ./toy_examples/Ch6/llvm-lowering.mlir --emit=llvm \
     --opt=true \
     --mlir-print-stacktrace-on-diagnostic=true \
-    --mlir-print-op-on-diagnostic=true \
-    --mlir-print-op-generic=false \
-    --mlir-print-ir-before-all=true \
-    --mlir-print-ir-after-all=true \
     --mlir-disable-threading=true
 
 # ## Build and run dialect sample
