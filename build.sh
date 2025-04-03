@@ -56,7 +56,7 @@ check_var d MLIR_DIR
 # zig build ${ARG_DIR_BUILD_CACHE} -freference-trace -Doptimize=${MODE} -Dchapters=ch1
 # ./zig-out/bin/toyc-ch1 ./toy_examples/Ch1/ast.toy --emit=ast
 
-## Build and run other chapter
+# ## Build and run other chapter
 # ### Ch2
 # zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
 #     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
@@ -84,7 +84,7 @@ check_var d MLIR_DIR
 # ### Ch4
 # zig build ${ARG_DIR_BUILD_CACHE} -Doptimize=${MODE} -freference-trace \
 #     -Dllvm_dir=${LLVM_DIR} -Dmlir_dir=${MLIR_DIR} \
-#     -Dlink_mode=static -Duse_custom_libcxx=false \
+#     -Dlink_mode=dynamic -Duse_custom_libcxx=false \
 #     -Dchapters=ch4 -Dbuild_dialect=true
 # ./zig-out/bin/toyc-ch4 ./toy_examples/Ch4/shape_inference.mlir --emit=mlir \
 #     --opt=true \

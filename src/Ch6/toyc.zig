@@ -17,6 +17,7 @@ const MLIRContextOptions = com_opts.MLIRContextOptions;
 const PassManagerOptions = com_opts.PassManagerOptions;
 
 const strref = c.mlirStringRefCreateFromCString;
+
 fn z2strref(src: []const u8) c.MlirStringRef {
     return c.mlirStringRefCreate(src.ptr, src.len);
 }
@@ -38,7 +39,7 @@ pub const CLIOptions: type = com_opts.mergeOptions(&.{
     com_opts.ArgPassManagerOptions,
 });
 
-pub const MLIRContextHolder = struct {
+pub const MLIRContextManager = struct {
     ctx: c.MlirContext,
     registry: c.MlirDialectRegistry,
     opflags: c.MlirOpPrintingFlags,
@@ -89,9 +90,9 @@ pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleA
 pub fn readMLIRFromToy(
     allocator: Allocator,
     file_path: []const u8,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
 ) !c.MlirOperation {
-    const ctx = holder.ctx;
+    const ctx = manager.ctx;
 
     // Remember to load Toy dialect
     try c_api.loadToyDialect(ctx);
@@ -114,9 +115,9 @@ pub fn readMLIRFromToy(
 pub fn readMLIRFromMLIR(
     _: Allocator,
     file_path: []const u8,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
 ) !c.MlirOperation {
-    const ctx = holder.ctx;
+    const ctx = manager.ctx;
 
     try c_api.loadToyDialect(ctx);
 
@@ -126,19 +127,18 @@ pub fn readMLIRFromMLIR(
         return error.FailedToParseMLIR;
     }
 
-    std.debug.assert(!c.mlirOperationIsNull(module_op));
     return module_op;
 }
 
 pub fn processMLIR(
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
     module_op: c.MlirOperation,
     pm_opts: PassManagerOptions,
     enable_opt: bool,
     action: Action,
 ) !void {
-    const ctx = holder.ctx;
-    const opflags = holder.opflags;
+    const ctx = manager.ctx;
+    const opflags = manager.opflags;
 
     const name = c.mlirIdentifierStr(c.mlirOperationGetName(module_op));
     const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
@@ -220,10 +220,7 @@ pub fn processMLIR(
     if (is_lowering_to_llvm) {
         c.mlirPassManagerAddOwnedPass(pm, c.mlirToyCreateLowerToLLVMPass());
 
-        const opm_llvmfunc = c.mlirPassManagerGetNestedUnder(
-            pm,
-            strref("llvm.func"),
-        );
+        const opm_llvmfunc = c.mlirPassManagerGetNestedUnder(pm, strref("llvm.func"));
         c.mlirOpPassManagerAddOwnedPass(
             opm_llvmfunc,
             c.mlirExtLLVMCreateDIScopeForLLVMFuncOpPass(),
@@ -248,10 +245,10 @@ pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
 
 pub fn dumpLLVMIR(
     module_op: c.MlirOperation,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
     enable_opt: bool,
 ) !void {
-    const ctx = holder.ctx;
+    const ctx = manager.ctx;
 
     c.mlirExtRegisterBuiltinDialectTranslation(ctx);
     c.mlirExtRegisterLLVMDialectTranslation(ctx);
@@ -358,10 +355,10 @@ pub fn dumpLLVMIR(
 // adding the pass `mlir::LLVM::createRequestCWrappersPass()`.
 pub fn runJit(
     module_op: c.MlirOperation,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
     enable_opt: bool,
 ) !void {
-    const ctx = holder.ctx;
+    const ctx = manager.ctx;
     const module = c.mlirModuleFromOperation(module_op);
 
     _ = c.LLVMInitializeNativeTarget();
@@ -414,34 +411,34 @@ pub fn main() !void {
     switch (action) {
         Action.ast => try dumpAST(file_path, allocator),
         Action.mlir, Action.mlir_affine, Action.mlir_llvm, Action.llvm, Action.jit => {
-            var ctx_holder = MLIRContextHolder.init(mlir_context_opts, asm_printer_opts);
-            defer ctx_holder.deinit();
+            var manager = MLIRContextManager.init(mlir_context_opts, asm_printer_opts);
+            defer manager.deinit();
 
-            ctx_holder.registerAllUpstreamDialects();
+            manager.registerAllUpstreamDialects();
 
             // XXX: if we don't want to register all dialects at once, we need
             // to figure out what else dialects need to load.
-            // ctx_holder.registerAndLoadDialect("llvm");
+            // manager.registerAndLoadDialect("llvm");
 
             var module_op: c.MlirOperation = undefined;
             if (input_type != InputType.mlir and !std.mem.endsWith(u8, file_path, ".mlir")) {
-                module_op = try readMLIRFromToy(allocator, file_path, ctx_holder);
+                module_op = try readMLIRFromToy(allocator, file_path, manager);
             } else {
-                module_op = try readMLIRFromMLIR(allocator, file_path, ctx_holder);
+                module_op = try readMLIRFromMLIR(allocator, file_path, manager);
             }
 
-            try processMLIR(ctx_holder, module_op, pass_manager_opts, enable_opt, action);
+            try processMLIR(manager, module_op, pass_manager_opts, enable_opt, action);
 
             switch (action) {
                 Action.mlir, Action.mlir_affine, Action.mlir_llvm => {
-                    const opflags = ctx_holder.opflags;
+                    const opflags = manager.opflags;
                     c.mlirOperationPrintWithFlags(module_op, opflags, c_api.printToStderr, null);
                 },
                 Action.llvm => {
-                    try dumpLLVMIR(module_op, ctx_holder, enable_opt);
+                    try dumpLLVMIR(module_op, manager, enable_opt);
                 },
                 Action.jit => {
-                    try runJit(module_op, ctx_holder, enable_opt);
+                    try runJit(module_op, manager, enable_opt);
                 },
                 else => unreachable,
             }

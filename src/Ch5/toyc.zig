@@ -16,6 +16,12 @@ const AsmPrinterOptions = com_opts.AsmPrinterOptions;
 const MLIRContextOptions = com_opts.MLIRContextOptions;
 const PassManagerOptions = com_opts.PassManagerOptions;
 
+const strref = c.mlirStringRefCreateFromCString;
+
+fn z2strref(src: []const u8) c.MlirStringRef {
+    return c.mlirStringRefCreate(src.ptr, src.len);
+}
+
 pub const InputType = enum { toy, mlir };
 pub const Action = enum { none, ast, mlir, mlir_affine };
 
@@ -33,23 +39,7 @@ pub const CLIOptions: type = com_opts.mergeOptions(&.{
     com_opts.ArgPassManagerOptions,
 });
 
-pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleAST {
-    var _lexer = try lexer.Lexer.init(file_path);
-    var _parser = parser.Parser.init(&_lexer, allocator);
-    return try _parser.parseModule();
-}
-
-pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
-    var module_ast = try parseInputFile(file_path, allocator);
-    defer module_ast.deinit();
-
-    var ast_dumper = try ast.ASTDumper.init(allocator, 1024);
-    defer ast_dumper.deinit();
-
-    try ast_dumper.dump(module_ast);
-}
-
-pub const MLIRContextHolder = struct {
+pub const MLIRContextManager = struct {
     ctx: c.MlirContext,
     opflags: c.MlirOpPrintingFlags,
 
@@ -75,16 +65,32 @@ pub const MLIRContextHolder = struct {
     }
 };
 
+pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleAST {
+    var _lexer = try lexer.Lexer.init(file_path);
+    var _parser = parser.Parser.init(&_lexer, allocator);
+    return try _parser.parseModule();
+}
+
+pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
+    var module_ast = try parseInputFile(file_path, allocator);
+    defer module_ast.deinit();
+
+    var ast_dumper = try ast.ASTDumper.init(allocator, 1024);
+    defer ast_dumper.deinit();
+
+    try ast_dumper.dump(module_ast);
+}
+
 pub fn dumpMLIRFromToy(
     allocator: Allocator,
     file_path: []const u8,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
     enable_opt: bool,
     pm_opts: PassManagerOptions,
     action: Action,
 ) !void {
-    const ctx = holder.ctx;
-    const opflags = holder.opflags;
+    const ctx = manager.ctx;
+    const opflags = manager.opflags;
 
     // Remember to load Toy dialect
     try c_api.loadToyDialect(ctx);
@@ -101,46 +107,44 @@ pub fn dumpMLIRFromToy(
 
     const module_op = c.mlirModuleGetOperation(module);
 
-    runPass(holder, module_op, pm_opts, enable_opt, action);
+    try processMLIR(manager, module_op, pm_opts, enable_opt, action);
 
     c.mlirOperationPrintWithFlags(module_op, opflags, c_api.printToStderr, null);
 }
 
 pub fn dumpMLIRFromMLIR(
-    allocator: Allocator,
+    _: Allocator,
     file_path: []const u8,
-    holder: MLIRContextHolder,
+    manager: MLIRContextManager,
     enable_opt: bool,
     pm_opts: PassManagerOptions,
     action: Action,
 ) !void {
-    _ = allocator;
-
-    const ctx = holder.ctx;
-    const opflags = holder.opflags;
+    const ctx = manager.ctx;
+    const opflags = manager.opflags;
 
     try c_api.loadToyDialect(ctx);
 
-    const fp_strref = c.mlirStringRefCreate(file_path.ptr, file_path.len);
+    const fp_strref = z2strref(file_path);
     const module_op = c.mlirExtParseSourceFileAsModuleOp(ctx, fp_strref);
     if (c.mlirOperationIsNull(module_op)) {
         return error.FailedToParseMLIR;
     }
 
-    runPass(holder, module_op, pm_opts, enable_opt, action);
+    try processMLIR(manager, module_op, pm_opts, enable_opt, action);
 
     c.mlirOperationPrintWithFlags(module_op, opflags, c_api.printToStderr, null);
 }
 
-pub fn runPass(
-    holder: MLIRContextHolder,
+pub fn processMLIR(
+    manager: MLIRContextManager,
     module_op: c.MlirOperation,
     pm_opts: PassManagerOptions,
     enable_opt: bool,
     action: Action,
-) void {
-    const ctx = holder.ctx;
-    const opflags = holder.opflags;
+) !void {
+    const ctx = manager.ctx;
+    const opflags = manager.opflags;
 
     const name = c.mlirIdentifierStr(c.mlirOperationGetName(module_op));
     const pm = c.mlirPassManagerCreateOnOperation(ctx, name);
@@ -157,10 +161,7 @@ pub fn runPass(
             c.mlirCreateTransformsInliner(),
         );
 
-        const opm_toyfunc = c.mlirPassManagerGetNestedUnder(
-            pm,
-            c.mlirStringRefCreateFromCString("toy.func"),
-        );
+        const opm_toyfunc = c.mlirPassManagerGetNestedUnder(pm, strref("toy.func"));
 
         // ShapeInference, canonicalizer, CSE pass (for toy.funcs)
         // Note: passes like `mlirCreateTransformsXXX` are defined in
@@ -185,10 +186,7 @@ pub fn runPass(
         c.mlirPassManagerAddOwnedPass(pm, c.mlirToyCreateLowerToAffinePass());
 
         // Add a few cleanups post lowering
-        const opm_funcfunc = c.mlirPassManagerGetNestedUnder(
-            pm,
-            c.mlirStringRefCreateFromCString("func.func"),
-        );
+        const opm_funcfunc = c.mlirPassManagerGetNestedUnder(pm, strref("func.func"));
         c.mlirOpPassManagerAddOwnedPass(
             opm_funcfunc,
             c.mlirCreateTransformsCanonicalizer(),
@@ -213,6 +211,7 @@ pub fn runPass(
     const result = c.mlirPassManagerRunOnOp(pm, module_op);
     if (c.mlirLogicalResultIsFailure(result)) {
         std.debug.print("failed to run canonicalizer pass\n", .{});
+        return error.FailedToProcessMLIR;
     }
 }
 
@@ -245,13 +244,13 @@ pub fn main() !void {
     switch (action) {
         Action.ast => try dumpAST(file_path, allocator),
         Action.mlir, Action.mlir_affine => {
-            var ctx_holder = MLIRContextHolder.init(mlir_context_opts, asm_printer_opts);
-            defer ctx_holder.deinit();
+            var manager = MLIRContextManager.init(mlir_context_opts, asm_printer_opts);
+            defer manager.deinit();
 
             if (input_type != InputType.mlir and !std.mem.endsWith(u8, file_path, ".mlir")) {
-                try dumpMLIRFromToy(allocator, file_path, ctx_holder, enable_opt, pass_manager_opts, action);
+                try dumpMLIRFromToy(allocator, file_path, manager, enable_opt, pass_manager_opts, action);
             } else {
-                try dumpMLIRFromMLIR(allocator, file_path, ctx_holder, enable_opt, pass_manager_opts, action);
+                try dumpMLIRFromMLIR(allocator, file_path, manager, enable_opt, pass_manager_opts, action);
             }
         },
         Action.none => {
