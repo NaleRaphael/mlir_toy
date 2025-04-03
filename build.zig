@@ -9,7 +9,7 @@ const BuildProto = *const fn (
     misc: bc.MiscConfig,
 ) *std.Build.Step.Compile;
 
-const Chapter = enum { ch1, ch2, ch3, ch4, ch5, ch6 };
+const Chapter = enum { ch1, ch2, ch3, ch4, ch5, ch6, ch7 };
 
 pub fn getChapterBuildFn(ch: Chapter) BuildProto {
     return switch (ch) {
@@ -19,6 +19,7 @@ pub fn getChapterBuildFn(ch: Chapter) BuildProto {
         .ch4 => @import("src/Ch4/build.zig").build,
         .ch5 => @import("src/Ch5/build.zig").build,
         .ch6 => @import("src/Ch6/build.zig").build,
+        .ch7 => @import("src/Ch7/build.zig").build,
         // NOTE: this one is excluded by default. If you want to build it,
         // please uncomment this and add "sample" back to the `Chapter` enum.
         // .sample => @import("src/sample/build.zig").build,
