@@ -61,6 +61,7 @@ pub const Token = union(enum) {
     tok_return,
     tok_var,
     tok_def,
+    tok_struct,
 
     // A helper function to return a token as keyword or identifier.
     // ref: https://github.com/ThePrimeagen/ts-rust-zig-deez/blob/3441b21/zig/src/lexer/lexer.zig#L36-L47
@@ -69,6 +70,7 @@ pub const Token = union(enum) {
             .{ "return", .tok_return },
             .{ "var", .tok_var },
             .{ "def", .tok_def },
+            .{ "struct", .tok_struct },
         });
         return map.get(ident);
     }
@@ -330,6 +332,10 @@ pub const LexerBuffer = struct {
 test "Lexer__getTok" {
     const content =
         \\var foo = 42.1;
+        \\struct Bar {
+        \\  var a;
+        \\  var b;
+        \\}
         \\def multiply_transpose(a, b) {
         \\  return transpose(a) * transpose(b);
         \\};
@@ -337,11 +343,24 @@ test "Lexer__getTok" {
     const filename = "test__Lexer__getTok.zig";
 
     const expected_tokens = [_]Token{
+        // var foo = 42.1;
         .tok_var,
         .{ .tok_ident = "foo" },
         .{ .tok_other = 61 },
         .{ .tok_num = 4.21e1 },
         .tok_semicolon,
+        // struct Bar { ... }
+        .tok_struct,
+        .{ .tok_ident = "Bar" },
+        .tok_cbracket_open,
+        .tok_var,
+        .{ .tok_ident = "a" },
+        .tok_semicolon,
+        .tok_var,
+        .{ .tok_ident = "b" },
+        .tok_semicolon,
+        .tok_cbracket_close,
+        // def multiply_transpose(a, b) { ... }
         .tok_def,
         .{ .tok_ident = "multiply_transpose" },
         .tok_parenthese_open,
