@@ -40,24 +40,40 @@ fn makeListType(comptime T: type) type {
 //    called from that instance's `deinit()`. That is, the owndership is
 //    handed over to that instance. This principle is also applied to the
 //    temporary ArraryList created in step 1.)
-pub const VarType = struct {
-    shape: []i64,
-    allocator: std.mem.Allocator,
+pub const VarType = union(enum) {
+    named: Named,
+    shaped: Shaped,
 
-    const Self = @This();
-    pub const ArrayList = std.ArrayList(i64);
-    pub const ElementType = i64;
+    pub const Named = struct {
+        name: []const u8,
 
-    pub fn fromArrayList(data: *Self.ArrayList) !Self {
-        return .{
-            .shape = try data.toOwnedSlice(),
-            .allocator = data.allocator,
-        };
-    }
+        pub fn tagged(self: @This()) VarType {
+            return .{ .named = self };
+        }
+    };
 
-    pub fn deinit(self: *Self) void {
-        self.allocator.free(self.shape);
-    }
+    pub const Shaped = struct {
+        shape: []i64,
+        allocator: std.mem.Allocator,
+
+        pub const ArrayList = std.ArrayList(i64);
+        pub const ElementType = i64;
+
+        pub fn fromArrayList(data: *@This().ArrayList) !@This() {
+            return .{
+                .shape = try data.toOwnedSlice(),
+                .allocator = data.allocator,
+            };
+        }
+
+        pub fn deinit(self: *@This()) void {
+            self.allocator.free(self.shape);
+        }
+
+        pub fn tagged(self: @This()) VarType {
+            return .{ .shaped = self };
+        }
+    };
 };
 
 pub const ExprASTKind = enum {
@@ -65,6 +81,7 @@ pub const ExprASTKind = enum {
     Return,
     Num,
     Literal,
+    StructLiteral,
     Var,
     BinOp,
     Call,
@@ -76,6 +93,7 @@ pub const ExprAST = union(ExprASTKind) {
     Return: *ReturnExprAST,
     Num: *NumberExprAST,
     Literal: *LiteralExprAST,
+    StructLiteral: *StructLiteralExprAST,
     Var: *VariableExprAST,
     BinOp: *BinaryExprAST,
     Call: *CallExprAST,
@@ -177,7 +195,7 @@ pub const NumberExprAST = struct {
 pub const LiteralExprAST = struct {
     base: BaseExprAST(Self),
     values: ExprASTListType,
-    dims: VarType,
+    dims: VarType.Shaped,
 
     const Self = @This();
     const BaseType = BaseExprAST(Self);
@@ -186,7 +204,7 @@ pub const LiteralExprAST = struct {
         alloc: std.mem.Allocator,
         _loc: lexer.Location,
         values: ExprASTListType,
-        dims: VarType,
+        dims: VarType.Shaped,
     ) !*Self {
         const ptr = try alloc.create(Self);
         ptr.* = .{
@@ -222,8 +240,53 @@ pub const LiteralExprAST = struct {
         return self.values.slice;
     }
 
-    pub fn getDims(self: Self) VarType {
+    pub fn getDims(self: Self) VarType.Shaped {
         return self.dims;
+    }
+};
+
+pub const StructLiteralExprAST = struct {
+    base: BaseExprAST(Self),
+    values: ExprASTListType,
+
+    const Self = @This();
+    const BaseType = BaseExprAST(Self);
+
+    pub fn init(
+        alloc: std.mem.Allocator,
+        _loc: lexer.Location,
+        values: ExprASTListType,
+    ) !*Self {
+        const ptr = try alloc.create(Self);
+        ptr.* = .{
+            .base = BaseType.init(ptr, .StructLiteral, _loc, alloc),
+            .values = values,
+        };
+        return ptr;
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.values.slice) |*v| {
+            v.deinit();
+        }
+        self.values.deinit();
+        self.base.deinit();
+    }
+
+    pub fn getKind(self: Self) ExprASTKind {
+        return self.base._kind;
+    }
+
+    pub fn loc(self: Self) lexer.Location {
+        return self.base._loc;
+    }
+
+    pub fn tagged(self: *Self) ExprAST {
+        return .{ .StructLiteral = self };
+    }
+
+    pub fn getValues(self: Self) ExprASTList {
+        return self.values.slice;
     }
 };
 
@@ -291,7 +354,10 @@ pub const VarDeclExprAST = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        self.type.deinit();
+        switch (self.type) {
+            .shaped => |*v| v.deinit(),
+            else => {},
+        }
         if (self.init_val) |*v| {
             v.deinit();
         }
@@ -502,8 +568,8 @@ pub const PrintExprAST = struct {
     }
 };
 
-pub const VariableExprASTListType = makeListType(*VariableExprAST);
-pub const VariableExprASTList = VariableExprASTListType.SliceType;
+pub const VarDeclExprASTListType = makeListType(*VarDeclExprAST);
+pub const VarDeclExprASTList = VarDeclExprASTListType.SliceType;
 
 pub const PrototypeAST = struct {
     _loc: lexer.Location,
@@ -511,7 +577,7 @@ pub const PrototypeAST = struct {
     args: ArgsType,
     alloc: std.mem.Allocator,
 
-    pub const ArgsType = VariableExprASTListType;
+    pub const ArgsType = VarDeclExprASTListType;
     const Self = @This();
 
     pub fn init(
@@ -546,17 +612,75 @@ pub const PrototypeAST = struct {
     }
 };
 
+pub const RecordASTKind = enum { Function, Struct };
+
+pub const RecordAST = union(RecordASTKind) {
+    Function: *FunctionAST,
+    Struct: *StructAST,
+
+    const Self = @This();
+
+    pub fn getKind(self: Self) ExprASTKind {
+        return std.meta.activeTag(self);
+    }
+
+    pub fn deinit(self: Self) void {
+        switch (self) {
+            inline else => |v| v.deinit(),
+        }
+    }
+
+    pub fn asPtr(self: Self, comptime T: type) T {
+        std.debug.assert(@typeInfo(T) == .Pointer);
+        return switch (self) {
+            inline else => |v| {
+                std.debug.assert(@TypeOf(v) == T);
+                return @alignCast(@ptrCast(v));
+            },
+        };
+    }
+};
+
+pub fn BaseRecordAST(comptime Context: type) type {
+    return struct {
+        context: *Context,
+        _kind: RecordASTKind,
+        alloc: std.mem.Allocator,
+
+        const Self = @This();
+
+        pub fn init(
+            context: *Context,
+            _kind: RecordASTKind,
+            alloc: std.mem.Allocator,
+        ) Self {
+            return .{ .context = context, ._kind = _kind, .alloc = alloc };
+        }
+
+        pub fn deinit(self: *Self) void {
+            self.alloc.destroy(self.context);
+        }
+    };
+}
+
 pub const FunctionAST = struct {
+    base: BaseType,
     proto: *PrototypeAST,
     body: BodyType,
     alloc: std.mem.Allocator,
 
     pub const BodyType = ExprASTListType;
     const Self = @This();
+    const BaseType = BaseRecordAST(Self);
 
     pub fn init(alloc: std.mem.Allocator, proto: *PrototypeAST, body: BodyType) !*Self {
         const ptr = try alloc.create(Self);
-        ptr.* = .{ .proto = proto, .body = body, .alloc = alloc };
+        ptr.* = .{
+            .base = BaseType.init(ptr, .Function, alloc),
+            .proto = proto,
+            .body = body,
+            .alloc = alloc,
+        };
         return ptr;
     }
 
@@ -566,7 +690,15 @@ pub const FunctionAST = struct {
             v.deinit();
         }
         self.body.deinit();
-        self.alloc.destroy(self);
+        self.base.deinit();
+    }
+
+    pub fn tagged(self: *Self) RecordAST {
+        return .{ .Function = self };
+    }
+
+    pub fn getKind(self: Self) RecordASTKind {
+        return self.base._kind;
     }
 
     pub fn getProto(self: Self) *PrototypeAST {
@@ -578,31 +710,85 @@ pub const FunctionAST = struct {
     }
 };
 
-pub const FunctionASTListType = makeListType(*FunctionAST);
-pub const FunctionASTList = FunctionASTListType.SliceType;
+pub const StructAST = struct {
+    base: BaseType,
+    _loc: lexer.Location,
+    name: []const u8,
+    variables: ArgsType,
 
-pub const ModuleAST = struct {
-    functions: FunctionASTListType,
-    alloc: std.mem.Allocator,
-
+    pub const ArgsType = VarDeclExprASTListType;
     const Self = @This();
+    const BaseType = BaseRecordAST(Self);
 
-    pub fn init(alloc: std.mem.Allocator, functions: FunctionASTListType) !*Self {
+    pub fn init(
+        alloc: std.mem.Allocator,
+        _loc: lexer.Location,
+        name: []const u8,
+        variables: ArgsType,
+    ) !*Self {
         const ptr = try alloc.create(Self);
-        ptr.* = .{ .functions = functions, .alloc = alloc };
+        ptr.* = .{
+            .base = BaseType.init(ptr, .Struct, alloc),
+            ._loc = _loc,
+            .name = name,
+            .variables = variables,
+        };
         return ptr;
     }
 
     pub fn deinit(self: *Self) void {
-        for (self.functions.slice) |func| {
+        for (self.variables.slice) |v| {
+            v.deinit();
+        }
+        self.base.deinit();
+    }
+
+    pub fn getKind(self: Self) RecordASTKind {
+        return self.base._kind;
+    }
+
+    pub fn tagged(self: *Self) RecordAST {
+        return .{ .Struct = self };
+    }
+
+    pub fn loc(self: Self) lexer.Location {
+        return self._loc;
+    }
+
+    pub fn getName(self: Self) void {
+        return self.name;
+    }
+
+    pub fn getVariables(self: Self) ArgsType.SliceType {
+        return self.variables.slice;
+    }
+};
+
+pub const RecordASTListType = makeListType(RecordAST);
+pub const RecordASTList = RecordASTListType.SliceType;
+
+pub const ModuleAST = struct {
+    records: RecordASTListType,
+    alloc: std.mem.Allocator,
+
+    const Self = @This();
+
+    pub fn init(alloc: std.mem.Allocator, records: RecordASTListType) !*Self {
+        const ptr = try alloc.create(Self);
+        ptr.* = .{ .records = records, .alloc = alloc };
+        return ptr;
+    }
+
+    pub fn deinit(self: *Self) void {
+        for (self.records.slice) |func| {
             func.deinit();
         }
-        self.functions.deinit();
+        self.records.deinit();
         self.alloc.destroy(self);
     }
 
-    pub fn getFunctions(self: Self) FunctionASTListType.SliceType {
-        return self.functions.slice;
+    pub fn getRecords(self: Self) RecordASTListType.SliceType {
+        return self.records.slice;
     }
 };
 
@@ -755,7 +941,7 @@ pub const ASTDumper = struct {
 
         // Print shape
         print("<", .{});
-        const type_t = VarType.ElementType;
+        const type_t = VarType.Shaped.ElementType;
         const dimsExpr = struct {
             pub fn func(arg: type_t, buf: ?[]u8) []const u8 {
                 return std.fmt.bufPrint(buf.?, "{d}", .{arg}) catch {
@@ -842,17 +1028,24 @@ pub const ASTDumper = struct {
     fn dumpVarType(self: *Self, var_type: VarType) void {
         print("<", .{});
 
-        const arg_t = VarType.ElementType;
-        const expr = struct {
-            fn func(arg: arg_t, buf: ?[]u8) []const u8 {
-                return std.fmt.bufPrint(buf.?, "{d}", .{arg}) catch {
-                    std.debug.print("Failed to format value in VarType\n", .{});
-                    return "";
-                };
-            }
-        }.func;
+        switch (var_type) {
+            .named => |v| {
+                print("{s}", .{v.name});
+            },
+            .shaped => |v| {
+                const arg_t = VarType.Shaped.ElementType;
+                const expr = struct {
+                    fn func(arg: arg_t, buf: ?[]u8) []const u8 {
+                        return std.fmt.bufPrint(buf.?, "{d}", .{arg}) catch {
+                            std.debug.print("Failed to format value in VarType\n", .{});
+                            return "";
+                        };
+                    }
+                }.func;
 
-        printSlice(arg_t, var_type.shape, expr, self.buf);
+                printSlice(arg_t, v.shape, expr, self.buf);
+            },
+        }
         print(">", .{});
     }
 
@@ -1023,11 +1216,11 @@ test "literal expr" {
     try values_al.append(num02.tagged());
     try values_al.append(num03.tagged());
 
-    var shape_al = VarType.ArrayList.init(test_alloc);
+    var shape_al = VarType.Shaped.ArrayList.init(test_alloc);
     try shape_al.append(3);
 
     const values = try ExprASTListType.fromArrayList(&values_al);
-    const dims = try VarType.fromArrayList(&shape_al);
+    const dims = try VarType.Shaped.fromArrayList(&shape_al);
 
     var lit_expr = try LiteralExprAST.init(
         test_alloc,
@@ -1087,8 +1280,7 @@ test "declaration expr" {
     const fname = "foobar.toy";
     const ident = "answer";
 
-    var type_al = VarType.ArrayList.init(test_alloc);
-    try type_al.append(1);
+    var type_al = VarType.Shaped.ArrayList.init(test_alloc);
 
     const value = 42;
     var num_expr = try NumberExprAST.init(
@@ -1098,11 +1290,13 @@ test "declaration expr" {
     );
 
     // Test with a VarDeclExprAST with non-null init_val
+    try type_al.append(1);
+    var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
     var decl_expr_1 = try VarDeclExprAST.init(
         test_alloc,
         .{ .file = fname, .line = 1, .col = 1 },
         ident,
-        try VarType.fromArrayList(&type_al),
+        var_type_1.tagged(),
         num_expr.tagged(),
     );
 
@@ -1116,8 +1310,9 @@ test "declaration expr" {
     try test_expect(std.mem.eql(u8, _decl_expr_1.getName(), ident));
 
     const _type_1 = _decl_expr_1.getType();
-    try test_expect(_type_1.shape.len == 1);
-    try test_expect(_type_1.shape[0] == 1);
+    std.debug.assert(std.meta.activeTag(_type_1) == .shaped);
+    try test_expect(_type_1.shaped.shape.len == 1);
+    try test_expect(_type_1.shaped.shape[0] == 1);
 
     var _init_val_1 = _decl_expr_1.getInitVal();
     try test_expect(_init_val_1 != null);
@@ -1128,11 +1323,15 @@ test "declaration expr" {
     try test_expect(_num_expr_1.loc().col == 22);
 
     // Test with a VarDeclExprAST with null init_val
+    // (Since the data in `type_al` has been used in `var_type_1`, it will be
+    // cleared then)
+    std.debug.assert(type_al.items.len == 0);
+    var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
     var decl_expr_2 = try VarDeclExprAST.init(
         test_alloc,
         .{ .file = fname, .line = 2, .col = 1 },
         ident,
-        try VarType.fromArrayList(&type_al),
+        var_type_2.tagged(),
         null,
     );
 
@@ -1466,11 +1665,35 @@ test "prototype ast" {
     const fname = "foobar.toy";
     const proto_name = "mul";
 
+    // NOTE: when `type_al` is used to create a `VarType`, its data will be
+    // **moved** [1] to the newly created instance. So we can resuce the same
+    // `type_al` to create multiple `VarType`s safely.
+    // [1]: the data movement is done by `ArrayList.toOwnedSlice()`
+    var type_al = VarType.Shaped.ArrayList.init(test_alloc);
+
+    try type_al.append(1);
+    var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
+    const decl_expr_1 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 9 },
+        "a",
+        var_type_1.tagged(),
+        null,
+    );
+
+    try type_al.append(1);
+    var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
+    const decl_expr_2 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 12 },
+        "b",
+        var_type_2.tagged(),
+        null,
+    );
+
     var var_exprs_al = PrototypeAST.ArgsType.ArrayList.init(test_alloc);
-    const var_expr_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 9 }, "a");
-    const var_expr_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 12 }, "b");
-    try var_exprs_al.append(var_expr_1);
-    try var_exprs_al.append(var_expr_2);
+    try var_exprs_al.append(decl_expr_1);
+    try var_exprs_al.append(decl_expr_2);
 
     const var_exprs = try PrototypeAST.ArgsType.fromArrayList(&var_exprs_al);
     var proto = try PrototypeAST.init(
@@ -1498,9 +1721,29 @@ test "function ast" {
     const fname = "foobar.toy";
     const proto_name = "mul";
 
+    var type_al = VarType.Shaped.ArrayList.init(test_alloc);
+
+    try type_al.append(1);
+    var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_1 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 9 },
+        "a",
+        var_type_1.tagged(),
+        null,
+    );
+
+    try type_al.append(1);
+    var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_2 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 12 },
+        "b",
+        var_type_2.tagged(),
+        null,
+    );
+
     var args_al = PrototypeAST.ArgsType.ArrayList.init(test_alloc);
-    const arg_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 10 }, "a");
-    const arg_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 13 }, "b");
     try args_al.append(arg_1);
     try args_al.append(arg_2);
 
@@ -1562,11 +1805,30 @@ test "module ast" {
     //     return a + b;
     // }
     const fname = "foobar.toy";
+    var type_al = VarType.Shaped.ArrayList.init(test_alloc);
 
     // Bulding AST for function `mul(a, b)`:
+    try type_al.append(1);
+    var var_type_1_1 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_1_1 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 9 },
+        "a",
+        var_type_1_1.tagged(),
+        null,
+    );
+
+    try type_al.append(1);
+    var var_type_1_2 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_1_2 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 12 },
+        "b",
+        var_type_1_2.tagged(),
+        null,
+    );
+
     var args_al_1 = PrototypeAST.ArgsType.ArrayList.init(test_alloc);
-    const arg_1_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 9 }, "a");
-    const arg_1_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 1, .col = 12 }, "b");
     try args_al_1.append(arg_1_1);
     try args_al_1.append(arg_1_2);
 
@@ -1601,9 +1863,27 @@ test "module ast" {
     const func_1 = try FunctionAST.init(test_alloc, proto_1, body_1);
 
     // Bulding AST for function `add(a, b)`:
+    try type_al.append(1);
+    var var_type_2_1 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_2_1 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 9 },
+        "a",
+        var_type_2_1.tagged(),
+        null,
+    );
+
+    try type_al.append(1);
+    var var_type_2_2 = try VarType.Shaped.fromArrayList(&type_al);
+    const arg_2_2 = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 12 },
+        "b",
+        var_type_2_2.tagged(),
+        null,
+    );
+
     var args_al_2 = PrototypeAST.ArgsType.ArrayList.init(test_alloc);
-    const arg_2_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 5, .col = 9 }, "a");
-    const arg_2_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 5, .col = 12 }, "b");
     try args_al_2.append(arg_2_1);
     try args_al_2.append(arg_2_2);
 
@@ -1633,24 +1913,24 @@ test "module ast" {
     const func_2 = try FunctionAST.init(test_alloc, proto_2, body_2);
 
     // Build AST for module:
-    var functions_al = FunctionASTListType.ArrayList.init(test_alloc);
-    try functions_al.append(func_1);
-    try functions_al.append(func_2);
+    var records_al = RecordASTListType.ArrayList.init(test_alloc);
+    try records_al.append(func_1.tagged());
+    try records_al.append(func_2.tagged());
 
-    const functions = try FunctionASTListType.fromArrayList(&functions_al);
+    const records = try RecordASTListType.fromArrayList(&records_al);
 
-    var module = try ModuleAST.init(test_alloc, functions);
+    var module = try ModuleAST.init(test_alloc, records);
     defer module.deinit();
 
     // Test, test, test...
-    const _functions = module.getFunctions();
-    try test_expect(_functions.len == 2);
+    const _records = module.getRecords();
+    try test_expect(_records.len == 2);
 
-    const _func_1 = _functions[0];
+    const _func_1 = _records[0].asPtr(*FunctionAST);
     try test_expect(std.mem.eql(u8, _func_1.getProto().getName(), "mul"));
     try test_expect(_func_1.getProto().getArgs().len == 2);
 
-    const _func_2 = _functions[1];
+    const _func_2 = _records[1].asPtr(*FunctionAST);
     try test_expect(std.mem.eql(u8, _func_2.getProto().getName(), "add"));
     try test_expect(_func_2.getProto().getArgs().len == 2);
 }
