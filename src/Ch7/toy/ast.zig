@@ -620,7 +620,7 @@ pub const RecordAST = union(RecordASTKind) {
 
     const Self = @This();
 
-    pub fn getKind(self: Self) ExprASTKind {
+    pub fn getKind(self: Self) RecordASTKind {
         return std.meta.activeTag(self);
     }
 
@@ -740,6 +740,7 @@ pub const StructAST = struct {
         for (self.variables.slice) |v| {
             v.deinit();
         }
+        self.variables.deinit();
         self.base.deinit();
     }
 
@@ -755,7 +756,7 @@ pub const StructAST = struct {
         return self._loc;
     }
 
-    pub fn getName(self: Self) void {
+    pub fn getName(self: Self) []const u8 {
         return self.name;
     }
 
@@ -1256,6 +1257,83 @@ test "literal expr" {
     const _dims = _lit.getDims();
     try test_expect(_dims.shape.len == 1);
     try test_expect(_dims.shape[0] == 3);
+}
+
+test "struct literal expr" {
+    // A struct can contain a nested array or number literal, e.g.,
+    // ```
+    // struct Foo = {
+    //   var a;
+    //   var b<1, 2>;
+    // };
+    // Foo foo = { 1, [2, 3] };  # we are going to build this one
+    // ```
+    const fname = "foobar.toy";
+    const loc = lexer.Location{ .file = fname, .line = 5, .col = 13 };
+
+    var num = try NumberExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 16 },
+        1,
+    );
+
+    var vals_al = ExprASTListType.ArrayList.init(test_alloc);
+    const lit_val_1 = try NumberExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 20 },
+        2,
+    );
+    const lit_val_2 = try NumberExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 23 },
+        3,
+    );
+    try vals_al.append(lit_val_1.tagged());
+    try vals_al.append(lit_val_2.tagged());
+
+    var shape_al = VarType.Shaped.ArrayList.init(test_alloc);
+    try shape_al.append(2);
+
+    const lit_vals = try ExprASTListType.fromArrayList(&vals_al);
+    const lit_dims = try VarType.Shaped.fromArrayList(&shape_al);
+    var lit = try LiteralExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 19 },
+        lit_vals,
+        lit_dims,
+    );
+
+    var slit_vals_al = ExprASTListType.ArrayList.init(test_alloc);
+    try slit_vals_al.append(num.tagged());
+    try slit_vals_al.append(lit.tagged());
+    const slit_vals = try ExprASTListType.fromArrayList(&slit_vals_al);
+    var slit = try StructLiteralExprAST.init(test_alloc, loc, slit_vals);
+    defer slit.deinit();
+
+    try test_expect(slit.getKind() == .StructLiteral);
+    try test_expect(slit.loc().col == 13);
+
+    const _slit_vals = slit.getValues();
+    try test_expect(_slit_vals.len == 2);
+
+    const _slit_val_1 = _slit_vals[0];
+    try test_expect(_slit_val_1.getKind() == .Num);
+    const _num = _slit_val_1.asPtr(*NumberExprAST);
+    try test_expect(_num.getValue() == 1);
+
+    const _slit_val_2 = _slit_vals[1];
+    try test_expect(_slit_val_2.getKind() == .Literal);
+
+    const _lit = _slit_val_2.asPtr(*LiteralExprAST);
+    const _lit_dims = _lit.getDims();
+    try test_expect(_lit_dims.shape.len == 1);
+    try test_expect(_lit_dims.shape[0] == 2);
+
+    const _lit_vals = _lit.getValues();
+    try test_expect(_lit_vals.len == 2);
+    try test_expect(_lit_vals[1].getKind() == .Num);
+    const _lit_val_2 = _lit_vals[1].asPtr(*NumberExprAST);
+    try test_expect(_lit_val_2.getValue() == 3);
 }
 
 test "variable expr" {
@@ -1774,6 +1852,9 @@ test "function ast" {
     var func = try FunctionAST.init(test_alloc, proto, body);
     defer func.deinit();
 
+    const type_erased_func = func.tagged();
+    try test_expect(type_erased_func.getKind() == .Function);
+
     try test_expect(std.mem.eql(u8, func.getProto().getName(), proto_name));
     try test_expect(func.getProto().getArgs().len == 2);
 
@@ -1794,6 +1875,120 @@ test "function ast" {
     const _rhs = _binary_expr.getRHS().asPtr(*VariableExprAST);
     try test_expect(std.mem.eql(u8, _lhs.getName(), "a"));
     try test_expect(std.mem.eql(u8, _rhs.getName(), "b"));
+}
+
+test "struct ast" {
+    // struct Vec2 {
+    //   var val<1, 2>;
+    // }
+    // struct Foo {
+    //   var a;    # unranked
+    //   Vec2 b;
+    // }
+    const fname = "foobar.toy";
+
+    // Build AST for struct `Vec2`
+    var vec2_val_t_al = VarType.Shaped.ArrayList.init(test_alloc);
+    try vec2_val_t_al.append(1);
+    try vec2_val_t_al.append(2);
+
+    const vec2_val_t = try VarType.Shaped.fromArrayList(&vec2_val_t_al);
+    const vec2_val = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 2, .col = 7 },
+        "val",
+        vec2_val_t.tagged(),
+        null,
+    );
+
+    var struct_vec2_vars_al = StructAST.ArgsType.ArrayList.init(test_alloc);
+    try struct_vec2_vars_al.append(vec2_val);
+
+    const struct_vec2_vars = try StructAST.ArgsType.fromArrayList(&struct_vec2_vars_al);
+    var struct_vec2 = try StructAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 1, .col = 8 },
+        "Vec2",
+        struct_vec2_vars,
+    );
+    defer struct_vec2.deinit();
+
+    // Build AST for struct `Foo`
+    var foo_a_t_al = VarType.Shaped.ArrayList.init(test_alloc);
+    const foo_a_t = try VarType.Shaped.fromArrayList(&foo_a_t_al);
+    const foo_a = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 7 },
+        "a",
+        foo_a_t.tagged(),
+        null,
+    );
+    const foo_b_t = VarType.Named{ .name = "Vec2" };
+    const foo_b = try VarDeclExprAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 5, .col = 7 },
+        "b",
+        foo_b_t.tagged(),
+        null,
+    );
+    var struct_foo_vars_al = StructAST.ArgsType.ArrayList.init(test_alloc);
+    try struct_foo_vars_al.append(foo_a);
+    try struct_foo_vars_al.append(foo_b);
+
+    const struct_foo_vars = try StructAST.ArgsType.fromArrayList(&struct_foo_vars_al);
+    var struct_foo = try StructAST.init(
+        test_alloc,
+        .{ .file = fname, .line = 4, .col = 8 },
+        "Foo",
+        struct_foo_vars,
+    );
+    defer struct_foo.deinit();
+
+    // Test AST of `Vec2`
+    const type_erased_vec2 = struct_vec2.tagged();
+    try test_expect(type_erased_vec2.getKind() == .Struct);
+
+    const _struct_vec2 = type_erased_vec2.asPtr(*StructAST);
+    try test_expect(std.mem.eql(u8, _struct_vec2.getName(), "Vec2"));
+    try test_expect(_struct_vec2.loc().line == 1);
+
+    const _vec2_vars = _struct_vec2.getVariables();
+    try test_expect(_vec2_vars.len == 1);
+
+    const _vec2_val = _vec2_vars[0];
+    try test_expect(std.mem.eql(u8, _vec2_val.getName(), "val"));
+    try test_expect(_vec2_val.loc().line == 2);
+
+    const _vec2_val_t = _vec2_val.getType();
+    try test_expect(std.meta.activeTag(_vec2_val_t) == .shaped);
+    const _vec2_val_dims = _vec2_val_t.shaped.shape;
+    try test_expect(_vec2_val_dims.len == 2);
+    try test_expect(_vec2_val_dims[0] == 1);
+    try test_expect(_vec2_val_dims[1] == 2);
+
+    // Test AST of `Foo`
+    const type_erased_foo = struct_foo.tagged();
+    try test_expect(type_erased_foo.getKind() == .Struct);
+
+    const _struct_foo = type_erased_foo.asPtr(*StructAST);
+    try test_expect(std.mem.eql(u8, _struct_foo.getName(), "Foo"));
+    try test_expect(_struct_foo.loc().line == 4);
+
+    const _foo_vars = _struct_foo.getVariables();
+    try test_expect(_foo_vars.len == 2);
+
+    const _foo_a = _foo_vars[0];
+    try test_expect(std.mem.eql(u8, _foo_a.getName(), "a"));
+    try test_expect(std.meta.activeTag(_foo_a.getType()) == .shaped);
+    try test_expect(_foo_a.getInitVal() == null);
+
+    const _foo_b = _foo_vars[1];
+    try test_expect(std.mem.eql(u8, _foo_b.getName(), "b"));
+    try test_expect(std.meta.activeTag(_foo_b.getType()) == .named);
+    try test_expect(_foo_b.getInitVal() == null);
+
+    const _foo_b_t = _foo_b.getType().named;
+    try test_expect(std.mem.eql(u8, _foo_b_t.name, "Vec2"));
 }
 
 test "module ast" {
