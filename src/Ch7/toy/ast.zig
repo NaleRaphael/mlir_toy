@@ -819,8 +819,11 @@ pub const ASTDumper = struct {
 
         self.indent();
         print("Module:\n", .{});
-        for (node.getFunctions()) |func| {
-            try self.dumpFunction(func);
+        for (node.getRecords()) |record| {
+            switch (record) {
+                .Function => |v| try self.dumpFunction(v),
+                .Struct => |v| try self.dumpStruct(v),
+            }
         }
     }
 
@@ -833,6 +836,27 @@ pub const ASTDumper = struct {
 
         try self.dumpPrototype(node.getProto());
         self.dumpExprList(node.getBody());
+    }
+
+    fn dumpStruct(self: *Self, node: *const StructAST) !void {
+        self.incIndentLv();
+        defer self.decIndentLv();
+        self.indent();
+
+        print("Struct: {s} {s}\n", .{ node.getName(), self.formatLoc(&node.loc()) });
+
+        {
+            self.incIndentLv();
+            defer self.decIndentLv();
+            self.indent();
+
+            print("Variables: [\n", .{});
+            for (node.getVariables()) |v| {
+                self.dumpVarDecl(v.*);
+            }
+            self.indent();
+            print("]\n", .{});
+        }
     }
 
     fn dumpPrototype(self: *Self, node: *const PrototypeAST) !void {
@@ -873,6 +897,7 @@ pub const ASTDumper = struct {
             .Return => |v| self.dumpReturn(v.*),
             .Num => |v| self.dumpNumber(v.*),
             .Literal => |v| self.dumpLiteral(v.*),
+            .StructLiteral => |v| self.dumpStructLiteral(v.*),
             .Var => |v| self.dumpVariable(v.*),
             .BinOp => |v| self.dumpBinOp(v.*),
             .Call => |v| self.dumpCall(v.*),
@@ -929,6 +954,19 @@ pub const ASTDumper = struct {
         // need to duplicate it as a mutable to call `tagged()` for conversion.
         var _node = node;
         printLitHelper(_node.tagged(), self.buf);
+        print(" {s}\n", .{self.formatLoc(&node.loc())});
+    }
+
+    fn dumpStructLiteral(self: *Self, node: StructLiteralExprAST) void {
+        self.incIndentLv();
+        defer self.decIndentLv();
+        self.indent();
+
+        print("Struct Literal: ", .{});
+        for (node.getValues()) |v| {
+            self.dumpExpr(v);
+        }
+        self.indent();
         print(" {s}\n", .{self.formatLoc(&node.loc())});
     }
 

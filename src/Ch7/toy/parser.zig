@@ -6,12 +6,15 @@ pub const ParseFailure = error{
     Module,
     Definition,
     Prototype,
+    Struct,
     ExprASTList,
     ExprAST,
     Block,
     VarDeclExprAST,
     VarType,
-    Literal,
+    TensorLiteral,
+    StructLiteral,
+    Call,
     Return,
     Unexpected,
     InvalidToken,
@@ -34,11 +37,19 @@ pub const Parser = struct {
     pub fn parseModule(self: Self) ParseError!*ast.ModuleAST {
         _ = try self.getNextToken();
 
-        var functions_al = ast.FunctionASTListType.ArrayList.init(self.allocator);
+        var records_al = ast.RecordASTListType.ArrayList.init(self.allocator);
         while (true) {
-            const func_ast = try self.parseDefinition();
-            try functions_al.append(func_ast);
-            if (self._lexer.getCurToken() == .tok_eof) break;
+            const cur_tok = self._lexer.getCurToken();
+            const record: ast.RecordAST = switch (cur_tok) {
+                .tok_eof => break,
+                .tok_def => try self.parseDefinition(),
+                .tok_struct => try self.parseStruct(),
+                else => {
+                    self.printErrMsg("'def' or 'struct'", "when parsing top level module record");
+                    return ParseError.Module;
+                },
+            };
+            try records_al.append(record);
         }
 
         if (self._lexer.getCurToken() != .tok_eof) {
@@ -46,8 +57,8 @@ pub const Parser = struct {
             return ParseFailure.Module;
         }
 
-        const functions = try ast.FunctionASTListType.fromArrayList(&functions_al);
-        const module = try ast.ModuleAST.init(self.allocator, functions);
+        const records = try ast.RecordASTListType.fromArrayList(&records_al);
+        const module = try ast.ModuleAST.init(self.allocator, records);
         return module;
     }
 
@@ -109,7 +120,7 @@ pub const Parser = struct {
         try self.consumeToken(.tok_sbracket_open);
 
         var values_al = ast.ExprASTListType.ArrayList.init(self.allocator);
-        var dims_al = ast.VarType.ArrayList.init(self.allocator);
+        var dims_al = ast.VarType.Shaped.ArrayList.init(self.allocator);
 
         const tok_comma = lexer.Token{ .tok_other = ',' };
         while (true) {
@@ -118,7 +129,7 @@ pub const Parser = struct {
                 if (literal) |v| {
                     try values_al.append(v);
                 } else {
-                    return null; // prase error in the nested arrary
+                    return null; // parse error in the nested arrary
                 }
             } else {
                 if (self._lexer.getCurToken() != .tok_num) {
@@ -183,9 +194,63 @@ pub const Parser = struct {
         }
 
         const values = try ast.ExprASTListType.fromArrayList(&values_al);
-        const dims = try ast.VarType.fromArrayList(&dims_al);
+        const dims = try ast.VarType.Shaped.fromArrayList(&dims_al);
         const lit = try ast.LiteralExprAST.init(self.allocator, loc, values, dims);
         return lit.tagged();
+    }
+
+    /// structLiteral ::= { (structLiteral | tensorLiteral)+ }
+    fn parseStructLiteral(self: Self) ParseError!ast.ExprAST {
+        const loc = self._lexer.getLastLocation();
+        try self.consumeToken(.tok_cbracket_open);
+
+        var values_al = ast.ExprASTListType.ArrayList.init(self.allocator);
+        while (true) {
+            // We can have either another nested array or a number literl.
+            const cur_tok = self._lexer.getCurToken();
+            if (cur_tok == .tok_sbracket_open) {
+                const literal = try self.parseTensorLiteralExpr();
+                if (literal) |v| {
+                    try values_al.append(v);
+                } else {
+                    // TODO: check whether an empty tensor is legal?
+                    self.printErrMsg("<something>", "in struct literal expression");
+                    return ParseError.StructLiteral;
+                }
+            } else if (cur_tok == .tok_num) {
+                const num = try self.parseNumberExpr();
+                try values_al.append(num);
+            } else {
+                if (cur_tok != .tok_cbracket_open) {
+                    self.printErrMsg("{, [, or number", "in struct literal expression");
+                    return ParseError.StructLiteral;
+                }
+                const expr = try self.parseStructLiteral();
+                try values_al.append(expr);
+            }
+
+            // End of this list on '}'
+            if (self._lexer.getCurToken() == .tok_cbracket_close) {
+                break;
+            }
+
+            // Elements are separated by a comma.
+            if (!std.meta.eql(self._lexer.getCurToken(), .{ .tok_other = ',' })) {
+                self.printErrMsg("} or ,", "in struct literal expression");
+                return ParseError.StructLiteral;
+            }
+            _ = try self.getNextToken(); // eat ,
+        }
+
+        if (values_al.items.len == 0) {
+            self.printErrMsg("<something>", "to fill struct literal expression");
+            return ParseError.StructLiteral;
+        }
+        _ = try self.getNextToken(); // eat }
+
+        const values = try ast.ExprASTListType.fromArrayList(&values_al);
+        const _slit = try ast.StructLiteralExprAST.init(self.allocator, loc, values);
+        return _slit.tagged();
     }
 
     /// Parse parenthesized expression.
@@ -206,6 +271,50 @@ pub const Parser = struct {
         }
     }
 
+    fn parseCallExpr(self: Self, name: []const u8, loc: lexer.Location) ParseError!ast.ExprAST {
+        try self.consumeToken(.tok_parenthese_open);
+        var args_al = ast.ExprASTListType.ArrayList.init(self.allocator);
+        errdefer args_al.deinit();
+
+        if (self._lexer.getCurToken() != .tok_parenthese_close) {
+            while (true) {
+                const arg = try self.parseExpression();
+                if (arg) |v| {
+                    try args_al.append(v);
+                } else {
+                    // There are something in between the parentheses as input
+                    // arguments, but we failed to parse the expression.
+                    self.printErrMsg("valid expression", "in a call expr");
+                    return ParseError.Call;
+                }
+
+                if (self._lexer.getCurToken() == .tok_parenthese_close) {
+                    break;
+                }
+
+                if (!std.meta.eql(self._lexer.getCurToken(), .{ .tok_other = ',' })) {
+                    self.printErrMsg(", or )", "in argument list");
+                    return ParseError.Call;
+                }
+            }
+        }
+        try self.consumeToken(.tok_parenthese_close);
+
+        const args = try ast.ExprASTListType.fromArrayList(&args_al);
+        if (std.mem.eql(u8, name, "print")) {
+            if (args.slice.len != 1) {
+                self.printErrMsg("<single arg>", "as argument to print()");
+                return ParseError.Call;
+            }
+            const ret = try ast.PrintExprAST.init(self.allocator, loc, args.slice[0]);
+            return ret.tagged();
+        }
+
+        // Call to a user-defined function
+        const ret = try ast.CallExprAST.init(self.allocator, loc, name, args);
+        return ret.tagged();
+    }
+
     /// identifierexpr
     ///   ::= identifier
     ///   ::= identifier '(' expression ')'
@@ -218,45 +327,8 @@ pub const Parser = struct {
             const ret = try ast.VariableExprAST.init(self.allocator, loc, name);
             return ret.tagged();
         }
-        try self.consumeToken(.tok_parenthese_open);
 
-        var args_al = ast.ExprASTListType.ArrayList.init(self.allocator);
-        if (self._lexer.getCurToken() != .tok_parenthese_close) {
-            while (true) {
-                const expr = try self.parseExpression();
-                if (expr) |arg| {
-                    try args_al.append(arg);
-                } else {
-                    return null;
-                }
-
-                const cur_tok = self._lexer.getCurToken();
-                if (cur_tok == .tok_parenthese_close) {
-                    break;
-                }
-
-                if (!std.meta.eql(cur_tok, lexer.Token{ .tok_other = ',' })) {
-                    self.printErrMsg(", or )", "in argument list");
-                    return ParseFailure.ExprAST;
-                }
-                _ = try self.getNextToken();
-            }
-        }
-        try self.consumeToken(.tok_parenthese_close);
-
-        const args = try ast.ExprASTListType.fromArrayList(&args_al);
-
-        if (std.mem.eql(u8, name, "print")) {
-            if (args.slice.len != 1) {
-                self.printErrMsg("<single arg>", "as argument to print()");
-                return ParseFailure.ExprAST;
-            }
-            const ret = try ast.PrintExprAST.init(self.allocator, loc, args.slice[0]);
-            return ret.tagged();
-        }
-
-        const ret = try ast.CallExprAST.init(self.allocator, loc, name, args);
-        return ret.tagged();
+        return try self.parseCallExpr(name, loc);
     }
 
     /// primary
@@ -271,6 +343,7 @@ pub const Parser = struct {
             .tok_num => return self.parseNumberExpr() catch null,
             .tok_parenthese_open => return self.parseParenExpr(),
             .tok_sbracket_open => return self.parseTensorLiteralExpr(),
+            .tok_cbracket_open => return self.parseStructLiteral() catch null,
             .tok_semicolon => return null,
             .tok_cbracket_close => return null,
             .tok_other => return null,
@@ -337,7 +410,7 @@ pub const Parser = struct {
         }
         try self.consumeToken(.tok_abracket_open);
 
-        var shape_al = ast.VarType.ArrayList.init(self.allocator);
+        var shape_al = ast.VarType.Shaped.ArrayList.init(self.allocator);
         while (self._lexer.getCurToken() == .tok_num) {
             try shape_al.append(@intFromFloat(self._lexer.getValue()));
             const next_tok = try self.getNextToken();
@@ -347,18 +420,85 @@ pub const Parser = struct {
             }
         }
 
-        const var_type = try ast.VarType.fromArrayList(&shape_al);
+        const var_type = try ast.VarType.Shaped.fromArrayList(&shape_al);
 
         if (self._lexer.getCurToken() != .tok_abracket_close) {
             self.printErrMsg(">", "to end type");
             return ParseFailure.VarType;
         }
         _ = try self.getNextToken(); // eat >
-        return var_type;
+        return var_type.tagged();
     }
 
-    /// decl ::= var identifier [ type ] = expr
-    fn parseDeclaration(self: Self) ParseError!*ast.VarDeclExprAST {
+    fn parseDeclarationOrCallExpr(self: Self) ParseError!ast.ExprAST {
+        const loc = self._lexer.getLastLocation();
+        const name = self._lexer.getId();
+        try self.consumeToken(.{ .tok_ident = name });
+
+        // Check for a call expression.
+        if (self._lexer.getCurToken() == .tok_parenthese_open) {
+            return self.parseCallExpr(name, loc);
+        }
+
+        // Otherwise, this is a variable declaration
+        const decl = try self.parseTypedDeclaration(name, loc, true);
+        return decl.tagged();
+    }
+
+    /// decl ::= var identifier [ type ] (= expr)?
+    /// decl ::= identifier identifier (= expr)?
+    fn parseDeclaration(self: Self, require_init: bool) ParseError!*ast.VarDeclExprAST {
+        // Check to see if this is a 'var' delcaration.
+        if (self._lexer.getCurToken() == .tok_var) {
+            return try self.parseVarDeclaration(require_init);
+        }
+
+        // Parse the type name.
+        if (self._lexer.getCurToken() != .tok_ident) {
+            self.printErrMsg("type name", "in variable declaration");
+            return ParseError.VarDeclExprAST;
+        }
+
+        const loc = self._lexer.getLastLocation();
+        const type_name = self._lexer.getId();
+        _ = try self.getNextToken();
+
+        return self.parseTypedDeclaration(type_name, loc, require_init);
+    }
+
+    /// decl ::= identifier identifier (= expr)?
+    fn parseTypedDeclaration(
+        self: Self,
+        type_name: []const u8,
+        loc: lexer.Location,
+        require_init: bool,
+    ) ParseError!*ast.VarDeclExprAST {
+        // Parse the variable name.
+        if (self._lexer.getCurToken() != .tok_ident) {
+            self.printErrMsg("name", "in variable declaration");
+            return ParseError.VarDeclExprAST;
+        }
+        const name = self._lexer.getId();
+        _ = try self.getNextToken();
+
+        // Parse the initializer.
+        var init_val: ?ast.ExprAST = null;
+        if (require_init) {
+            if (!std.meta.eql(self._lexer.getCurToken(), .{ .tok_other = '=' })) {
+                self.printErrMsg("initializer", "in variable declaration");
+                return ParseError.VarDeclExprAST;
+            }
+            try self.consumeToken(.{ .tok_other = '=' });
+            init_val = try self.parseExpression();
+        }
+
+        const var_type = ast.VarType.Named{ .name = type_name };
+        const decl = try ast.VarDeclExprAST.init(self.allocator, loc, name, var_type.tagged(), init_val);
+        return decl;
+    }
+
+    /// decl ::= var identifier [ type ] (= expr)?
+    fn parseVarDeclaration(self: Self, require_init: bool) ParseError!*ast.VarDeclExprAST {
         if (self._lexer.getCurToken() != .tok_var) {
             self.printErrMsg("var", "to begin declaration");
             return ParseFailure.VarDeclExprAST;
@@ -376,17 +516,21 @@ pub const Parser = struct {
                 break :blk try self.parseType();
             } else {
                 // Create a VarType with 0-sized shape
-                var shape_al = ast.VarType.ArrayList.init(self.allocator);
-                break :blk try ast.VarType.fromArrayList(&shape_al);
+                var shape_al = ast.VarType.Shaped.ArrayList.init(self.allocator);
+                const shaped_type = try ast.VarType.Shaped.fromArrayList(&shape_al);
+                break :blk shaped_type.tagged();
             }
         };
-        try self.consumeToken(lexer.Token{ .tok_other = '=' });
 
-        const expr = try self.parseExpression();
+        var expr: ?ast.ExprAST = null;
+        if (require_init) {
+            try self.consumeToken(lexer.Token{ .tok_other = '=' });
 
-        if (expr != null and expr.?.getKind() == .Literal) {
-            const lit = expr.?.asPtr(*ast.LiteralExprAST);
-            try self.checkTensorShape(var_type, lit);
+            expr = try self.parseExpression();
+            if (expr != null and expr.?.getKind() == .Literal) {
+                const lit = expr.?.asPtr(*ast.LiteralExprAST);
+                try self.checkTensorShape(var_type.shaped, lit);
+            }
         }
 
         const var_decl = try ast.VarDeclExprAST.init(self.allocator, loc, var_name, var_type, expr);
@@ -414,12 +558,16 @@ pub const Parser = struct {
         while (cur_tok != .tok_cbracket_close and cur_tok != .tok_eof) {
             switch (cur_tok) {
                 .tok_var => {
-                    const var_decl = try self.parseDeclaration();
+                    const var_decl = try self.parseDeclaration(true);
                     try body_al.append(var_decl.tagged());
                 },
                 .tok_return => {
                     const ret_tagged = try self.parseReturn();
                     try body_al.append(ret_tagged);
+                },
+                .tok_ident => {
+                    const expr = try self.parseDeclarationOrCallExpr();
+                    try body_al.append(expr);
                 },
                 else => {
                     const expr = try self.parseExpression();
@@ -486,11 +634,29 @@ pub const Parser = struct {
 
         var args_al = ast.PrototypeAST.ArgsType.ArrayList.init(self.allocator);
         while (self._lexer.getCurToken() != .tok_parenthese_close) {
-            const arg_name = self._lexer.getId();
+            const name_or_type = self._lexer.getId();
             const arg_loc = self._lexer.getLastLocation();
-            try self.consumeToken(.{ .tok_ident = arg_name });
+            try self.consumeToken(.{ .tok_ident = name_or_type });
 
-            const decl = try ast.VariableExprAST.init(self.allocator, arg_loc, arg_name);
+            var var_type: ast.VarType = undefined;
+            var name: []const u8 = undefined;
+            if (self._lexer.getCurToken() == .tok_ident) {
+                const named_type = ast.VarType.Named{ .name = name_or_type };
+
+                var_type = named_type.tagged();
+                name = self._lexer.getId();
+
+                try self.consumeToken(.{ .tok_ident = name });
+            } else {
+                var shape_al = ast.VarType.Shaped.ArrayList.init(self.allocator);
+                defer shape_al.deinit();
+                const shaped_type = try ast.VarType.Shaped.fromArrayList(&shape_al);
+
+                var_type = shaped_type.tagged();
+                name = name_or_type;
+            }
+
+            const decl = try ast.VarDeclExprAST.init(self.allocator, arg_loc, name, var_type, null);
             try args_al.append(decl);
 
             const tok_comma = lexer.Token{ .tok_other = ',' };
@@ -517,11 +683,51 @@ pub const Parser = struct {
     }
 
     /// definition ::= prototype block
-    fn parseDefinition(self: Self) ParseError!*ast.FunctionAST {
+    fn parseDefinition(self: Self) ParseError!ast.RecordAST {
         const proto = try self.parsePrototype();
         const body = try self.parseBlock();
         const func = try ast.FunctionAST.init(self.allocator, proto, body);
-        return func;
+        return func.tagged();
+    }
+
+    /// definition ::= `struct` identifier `{` decl+ `}`
+    fn parseStruct(self: Self) ParseError!ast.RecordAST {
+        const loc = self._lexer.getLastLocation();
+        try self.consumeToken(.tok_struct);
+        if (self._lexer.getCurToken() != .tok_ident) {
+            self.printErrMsg("name", "in struct definition");
+            return ParseFailure.Struct;
+        }
+
+        const name = self._lexer.getId();
+        try self.consumeToken(.{ .tok_ident = name });
+
+        // Parse: '{'
+        if (self._lexer.getCurToken() != .tok_cbracket_open) {
+            self.printErrMsg("{", "in struct definition");
+            return ParseFailure.Struct;
+        }
+        try self.consumeToken(.tok_cbracket_open);
+
+        // Parse: decl+
+        var decls_al = ast.VarDeclExprASTListType.ArrayList.init(self.allocator);
+        while (self._lexer.getCurToken() != .tok_cbracket_close) {
+            const decl = try self.parseDeclaration(false);
+            try decls_al.append(decl);
+
+            if (self._lexer.getCurToken() != .tok_semicolon) {
+                self.printErrMsg(";", "after variable in struct definition");
+                return ParseError.Struct;
+            }
+            try self.consumeToken(.tok_semicolon);
+        }
+
+        // Parse: '}'
+        try self.consumeToken(.tok_cbracket_close);
+
+        const decls = try ast.VarDeclExprASTListType.fromArrayList(&decls_al);
+        const _struct = try ast.StructAST.init(self.allocator, loc, name, decls);
+        return _struct.tagged();
     }
 
     fn getTokPrecedence(self: Self) i32 {
@@ -530,6 +736,7 @@ pub const Parser = struct {
                 return switch (c) {
                     '-', '+' => 20,
                     '*' => 40,
+                    '.' => 60,
                     else => -1,
                 };
             },
@@ -546,7 +753,7 @@ pub const Parser = struct {
         );
     }
 
-    fn checkTensorShape(self: Self, dims: ast.VarType, lit: *ast.LiteralExprAST) !void {
+    fn checkTensorShape(self: Self, dims: ast.VarType.Shaped, lit: *ast.LiteralExprAST) !void {
         const countEls = struct {
             fn count(_lit: *ast.LiteralExprAST) usize {
                 const vals = _lit.getValues();
@@ -595,7 +802,7 @@ pub const Parser = struct {
             ,
                 .{ _loc.line, _loc.col, dims.shape, num_els },
             );
-            return ParseError.Literal;
+            return ParseError.TensorLiteral;
         }
     }
 };

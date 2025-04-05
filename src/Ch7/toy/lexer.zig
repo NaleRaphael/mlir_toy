@@ -92,7 +92,7 @@ pub const Token = union(enum) {
             .tok_sbracket_close => "]",
             .tok_abracket_open => "<",
             .tok_abracket_close => ">",
-            .tok_eof, .tok_return, .tok_var, .tok_def, .tok_num => @tagName(self),
+            else => @tagName(self),
         };
     }
 };
