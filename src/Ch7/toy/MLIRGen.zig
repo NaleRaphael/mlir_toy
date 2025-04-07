@@ -609,13 +609,23 @@ fn fromVarDecl(self: *Self, var_decl: *ast.VarDeclExprAST) MLIRGenError!?c.MlirV
             // Check that the initializer type is the same as the variable declaration.
             const decl_mlir_type = try self.varTypeToMlirType(var_decl.getType(), var_decl.loc());
             const value_mlir_type = c.mlirValueGetType(value);
+
             if (!c.mlirTypeEqual(decl_mlir_type, value_mlir_type)) {
+                var pbuf1 = try c_api.PrintBuffer.init(self.allocator, 1024);
+                defer pbuf1.deinit();
+                var pbuf2 = try c_api.PrintBuffer.init(self.allocator, 1024);
+                defer pbuf2.deinit();
+
+                const msg_buf = try self.allocator.alloc(u8, 2048);
+                defer self.allocator.free(msg_buf);
+
+                c.mlirTypePrint(value_mlir_type, c_api.printToBuf, &pbuf1);
+                c.mlirTypePrint(decl_mlir_type, c_api.printToBuf, &pbuf2);
+
                 const loc = locToMlirLoc(self.ctx, var_decl.loc());
-                emitError(loc, "struct type of initializer is different than the variable declaration. Got {s}, but expected {s}", .{
-                    // TODO: is it possible to print `MlirType` as string?
-                    // value_mlir_type, decl_mlir_type,
-                    "foo", "bar",
-                });
+                emitErrorWithBuffer(loc, "struct type of initializer is different than the variable declaration. Got '{s}', but expected '{s}'", .{
+                    pbuf1.buf[0..pbuf1.print_len], pbuf2.buf[0..pbuf2.print_len],
+                }, msg_buf);
                 return MLIRGenError.VarDecl;
             }
         },
@@ -689,6 +699,11 @@ fn emitError(loc: c.MlirLocation, comptime fmt: []const u8, args: anytype) void 
     c.mlirEmitError(loc, msg.ptr);
 }
 
+fn emitErrorWithBuffer(loc: c.MlirLocation, comptime fmt: []const u8, args: anytype, buf: []u8) void {
+    const msg = std.fmt.bufPrintZ(buf, fmt, args) catch @panic("Message length exceeds buffer length.");
+    c.mlirEmitError(loc, msg.ptr);
+}
+
 fn collectData(
     expr: ast.ExprAST,
     data: *ArrayListF64,
@@ -715,7 +730,8 @@ fn makePair(comptime t1: type, comptime t2: type) type {
 }
 
 const std = @import("std");
-const c = @import("c_api.zig").c;
+const c_api = @import("c_api.zig");
+const c = c_api.c;
 const lexer = @import("lexer.zig");
 const ast = @import("ast.zig");
 const ScopedHashMap = @import("./scoped_hash_map.zig").ScopedHashMap;
