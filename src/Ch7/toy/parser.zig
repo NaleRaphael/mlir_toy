@@ -296,6 +296,7 @@ pub const Parser = struct {
                     self.printErrMsg(", or )", "in argument list");
                     return ParseError.Call;
                 }
+                _ = try self.getNextToken();
             }
         }
         try self.consumeToken(.tok_parenthese_close);
