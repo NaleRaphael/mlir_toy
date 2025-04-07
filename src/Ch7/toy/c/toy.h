@@ -21,6 +21,8 @@ MLIR_DECLARE_CAPI_DIALECT_REGISTRATION(Toy, toy);
 DEFINE_C_API_STRUCT(MlirOpBuilder, void);
 DEFINE_C_API_STRUCT(MlirToyFuncOp, const void);
 DEFINE_C_API_STRUCT(MlirToyReturnOp, const void);
+DEFINE_C_API_STRUCT(MlirToyStructAccessOp, const void);
+DEFINE_C_API_STRUCT(MlirToyStructConstantOp, const void);
 #undef DEFINE_C_API_STRUCT
 
 //===----------------------------------------------------------------------===//
@@ -70,6 +72,27 @@ MLIR_CAPI_EXPORTED void mlirToyFuncOpSetPrivate(MlirToyFuncOp toy_func_op);
 MLIR_CAPI_EXPORTED MlirToyReturnOp mlirToyReturnOpFromMlirOperation(MlirOperation op);
 MLIR_CAPI_EXPORTED bool mlirToyReturnOpIsNull(MlirToyReturnOp toy_return_op);
 MLIR_CAPI_EXPORTED bool mlirToyReturnOpHasOperand(MlirToyReturnOp toy_return_op);
+
+//===----------------------------------------------------------------------===//
+// ToyStruct API
+//===----------------------------------------------------------------------===//
+MLIR_CAPI_EXPORTED MlirType mlirToyStructTypeGet(intptr_t num_elt, const MlirType* el_types);
+
+//===----------------------------------------------------------------------===//
+// ToyStructAccessOp API
+//===----------------------------------------------------------------------===//
+MLIR_CAPI_EXPORTED MlirValue mlirToyStructAccessOpCreate(
+    MlirOpBuilder op_builder, MlirLocation loc, MlirValue input,
+    intptr_t index
+);
+
+//===----------------------------------------------------------------------===//
+// ToyStructConstantOp API
+//===----------------------------------------------------------------------===//
+MLIR_CAPI_EXPORTED MlirValue mlirToyStructConstantOpCreate(
+    MlirOpBuilder op_builder, MlirLocation loc, MlirType data_type,
+    MlirAttribute data_attr
+);
 
 //===----------------------------------------------------------------------===//
 // Other ToyOp API

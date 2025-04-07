@@ -89,19 +89,11 @@ pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleA
 
 pub fn readMLIRFromToy(
     allocator: Allocator,
+    mlirgen: *MLIRGen,
     file_path: []const u8,
-    manager: MLIRContextManager,
 ) !c.MlirOperation {
-    const ctx = manager.ctx;
-
-    // Remember to load Toy dialect
-    try c_api.loadToyDialect(ctx);
-
     var module_ast = try parseInputFile(file_path, allocator);
     defer module_ast.deinit();
-
-    var mlirgen = MLIRGen.init(ctx, allocator);
-    defer mlirgen.deinit();
 
     const module = try mlirgen.fromModule(module_ast) orelse {
         return error.FailedToGenMLIR;
@@ -113,14 +105,10 @@ pub fn readMLIRFromToy(
 }
 
 pub fn readMLIRFromMLIR(
-    _: Allocator,
     file_path: []const u8,
     manager: MLIRContextManager,
 ) !c.MlirOperation {
     const ctx = manager.ctx;
-
-    try c_api.loadToyDialect(ctx);
-
     const fp_strref = z2strref(file_path);
     const module_op = c.mlirExtParseSourceFileAsModuleOp(ctx, fp_strref);
     if (c.mlirOperationIsNull(module_op)) {
@@ -416,15 +404,21 @@ pub fn main() !void {
 
             manager.registerAllUpstreamDialects();
 
+            // Remember to load Toy dialect
+            try c_api.loadToyDialect(manager.ctx);
+
             // XXX: if we don't want to register all dialects at once, we need
             // to figure out what else dialects need to load.
             // manager.registerAndLoadDialect("llvm");
 
+            var mlirgen = MLIRGen.init(manager.ctx, allocator);
+            defer mlirgen.deinit();
+
             var module_op: c.MlirOperation = undefined;
             if (input_type != InputType.mlir and !std.mem.endsWith(u8, file_path, ".mlir")) {
-                module_op = try readMLIRFromToy(allocator, file_path, manager);
+                module_op = try readMLIRFromToy(allocator, &mlirgen, file_path);
             } else {
-                module_op = try readMLIRFromMLIR(allocator, file_path, manager);
+                module_op = try readMLIRFromMLIR(file_path, manager);
             }
 
             try processMLIR(manager, module_op, pass_manager_opts, enable_opt, action);

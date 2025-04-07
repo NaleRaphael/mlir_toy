@@ -126,6 +126,55 @@ bool mlirToyReturnOpHasOperand(MlirToyReturnOp toy_return_op) {
 }
 
 //===----------------------------------------------------------------------===//
+// ToyStructType API
+//===----------------------------------------------------------------------===//
+MlirType mlirToyStructTypeGet(intptr_t num_elt, const MlirType* el_types) {
+    std::vector<mlir::Type> unwrapped_el_types;
+    for (int i = 0; i < num_elt; i++) {
+        unwrapped_el_types.push_back(unwrap(el_types[i]));
+    }
+    mlir::toy::StructType struct_type = mlir::toy::StructType::get(
+        llvm::ArrayRef(unwrapped_el_types)
+    );
+    return wrap(struct_type);
+}
+
+//===----------------------------------------------------------------------===//
+// ToyStructAccessOp API
+//===----------------------------------------------------------------------===//
+MlirValue mlirToyStructAccessOpCreate(
+    MlirOpBuilder op_builder, MlirLocation loc, MlirValue input,
+    intptr_t index
+) {
+    auto *builder = unwrap(op_builder);
+
+    mlir::Location _loc = unwrap(loc);
+    mlir::Value _input = unwrap(input);
+    auto _index = static_cast<size_t>(index);
+
+    // TODO: check whehter we should cast index from `intptr_t` to `size_t`
+    auto op = builder->create<mlir::toy::StructAccessOp>(_loc, _input, _index);
+    return wrap(op.getOutput());
+}
+
+//===----------------------------------------------------------------------===//
+// ToyStructConstantOp API
+//===----------------------------------------------------------------------===//
+MlirValue mlirToyStructConstantOpCreate(
+    MlirOpBuilder op_builder, MlirLocation loc, MlirType data_type,
+    MlirAttribute data_attr
+) {
+    auto *builder = unwrap(op_builder);
+
+    mlir::Location _loc = unwrap(loc);
+    mlir::Type _type = unwrap(data_type);
+    mlir::ArrayAttr _attr = llvm::cast<mlir::ArrayAttr>(unwrap(data_attr));
+
+    auto op = builder->create<mlir::toy::StructConstantOp>(_loc, _type, _attr);
+    return wrap(op.getOutput());
+}
+
+//===----------------------------------------------------------------------===//
 // Other ToyOp API
 //===----------------------------------------------------------------------===//
 // NOTE: The returned types of these functions is determined by the definitions
