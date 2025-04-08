@@ -1188,8 +1188,12 @@ const FloatFormatter = struct {
     }
 };
 
+fn newLoc(file: []const u8, line: u32, col: u32) lexer.Location {
+    return .{ .file = file, .line = line, .col = col };
+}
+
 test "number expr" {
-    const loc = lexer.Location{ .file = "foobar.toy", .line = 10, .col = 20 };
+    const loc = newLoc("foobar.toy", 10, 20);
     const val: f64 = 42;
     var num_expr = try NumberExprAST.init(test_alloc, loc, val);
 
@@ -1219,17 +1223,17 @@ test "literal expr" {
     var values_al = ExprASTListType.ArrayList.init(test_alloc);
     var num01 = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 10, .col = 20 },
+        newLoc(fname, 10, 20),
         42,
     );
     var num02 = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 10, .col = 23 },
+        newLoc(fname, 10, 23),
         43,
     );
     var num03 = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 10, .col = 26 },
+        newLoc(fname, 10, 26),
         44,
     );
     try values_al.append(num01.tagged());
@@ -1244,7 +1248,7 @@ test "literal expr" {
 
     var lit_expr = try LiteralExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 10, .col = 20 },
+        newLoc(fname, 10, 20),
         values,
         dims,
     );
@@ -1289,23 +1293,23 @@ test "struct literal expr" {
     // Foo foo = { 1, [2, 3] };  # we are going to build this one
     // ```
     const fname = "foobar.toy";
-    const loc = lexer.Location{ .file = fname, .line = 5, .col = 13 };
+    const loc = newLoc(fname, 5, 13);
 
     var num = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 16 },
+        newLoc(fname, 5, 16),
         1,
     );
 
     var vals_al = ExprASTListType.ArrayList.init(test_alloc);
     const lit_val_1 = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 20 },
+        newLoc(fname, 5, 20),
         2,
     );
     const lit_val_2 = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 23 },
+        newLoc(fname, 5, 23),
         3,
     );
     try vals_al.append(lit_val_1.tagged());
@@ -1318,7 +1322,7 @@ test "struct literal expr" {
     const lit_dims = try VarType.Shaped.fromArrayList(&shape_al);
     var lit = try LiteralExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 19 },
+        newLoc(fname, 5, 19),
         lit_vals,
         lit_dims,
     );
@@ -1357,7 +1361,7 @@ test "struct literal expr" {
 }
 
 test "variable expr" {
-    const loc = lexer.Location{ .file = "foobar.toy", .line = 10, .col = 20 };
+    const loc = newLoc("foobar.toy", 10, 20);
     var var_expr = try VariableExprAST.init(test_alloc, loc, "std");
 
     var expr = var_expr.tagged();
@@ -1383,7 +1387,7 @@ test "declaration expr" {
     const value = 42;
     var num_expr = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 22 },
+        newLoc(fname, 1, 22),
         value,
     );
 
@@ -1392,7 +1396,7 @@ test "declaration expr" {
     var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
     var decl_expr_1 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 1 },
+        newLoc(fname, 1, 1),
         ident,
         var_type_1.tagged(),
         num_expr.tagged(),
@@ -1427,7 +1431,7 @@ test "declaration expr" {
     var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
     var decl_expr_2 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 1 },
+        newLoc(fname, 2, 1),
         ident,
         var_type_2.tagged(),
         null,
@@ -1448,12 +1452,12 @@ test "return expr" {
     //     return 42;
     var num_expr = try NumberExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 12 },
+        newLoc(fname, 2, 12),
         42,
     );
     var ret_expr_1 = try ReturnExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         num_expr.tagged(),
     );
 
@@ -1461,7 +1465,7 @@ test "return expr" {
     //     return;
     var ret_expr_2 = try ReturnExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 6, .col = 5 },
+        newLoc(fname, 6, 5),
         null,
     );
 
@@ -1492,7 +1496,7 @@ test "return expr with call" {
 
     const makeVar = struct {
         fn func(f: []const u8, l: u32, c: u32, n: []const u8) !ExprAST {
-            const v = try VariableExprAST.init(test_alloc, .{ .file = f, .line = l, .col = c }, n);
+            const v = try VariableExprAST.init(test_alloc, newLoc(f, l, c), n);
             return v.tagged();
         }
     }.func;
@@ -1503,7 +1507,7 @@ test "return expr with call" {
             try args_al.append(v1);
             try args_al.append(v2);
             const args = try ExprASTListType.fromArrayList(&args_al);
-            const call = try CallExprAST.init(test_alloc, .{ .file = f, .line = l, .col = c }, n, args);
+            const call = try CallExprAST.init(test_alloc, newLoc(f, l, c), n, args);
             return call.tagged();
         }
     }.func;
@@ -1518,7 +1522,7 @@ test "return expr with call" {
     const call_2 = try makeCall(fname, 2, 12, "mul", vars[0], call_1);
     const ret_expr = try ReturnExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 5 },
+        newLoc(fname, 1, 5),
         call_2,
     );
     var expr = ret_expr.tagged();
@@ -1541,11 +1545,11 @@ test "binary expr" {
     const fname = "foobar.toy";
     const op = '+';
 
-    var lhs = try NumberExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 9 }, 11);
-    var rhs = try NumberExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 14 }, 13);
+    var lhs = try NumberExprAST.init(test_alloc, newLoc(fname, 2, 9), 11);
+    var rhs = try NumberExprAST.init(test_alloc, newLoc(fname, 2, 14), 13);
     var bin_expr = try BinaryExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         op,
         lhs.tagged(),
         rhs.tagged(),
@@ -1576,7 +1580,7 @@ test "binary expr nested" {
 
     const makeNum = struct {
         fn func(f: []const u8, l: u32, c: u32, v: f64) !ExprAST {
-            const num = try NumberExprAST.init(test_alloc, .{ .file = f, .line = l, .col = c }, v);
+            const num = try NumberExprAST.init(test_alloc, newLoc(f, l, c), v);
             return num.tagged();
         }
     }.func;
@@ -1585,7 +1589,7 @@ test "binary expr nested" {
         fn func(f: []const u8, l: u32, c: u32, o: u8, left: ExprAST, right: ExprAST) !ExprAST {
             const bin = try BinaryExprAST.init(
                 test_alloc,
-                .{ .file = f, .line = l, .col = c },
+                newLoc(f, l, c),
                 o,
                 left,
                 right,
@@ -1640,8 +1644,8 @@ test "call expr" {
     //     mul(11, 13);
 
     const fname = "foobar.toy";
-    var arg_1 = try NumberExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 9 }, 11);
-    var arg_2 = try NumberExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 13 }, 13);
+    var arg_1 = try NumberExprAST.init(test_alloc, newLoc(fname, 2, 9), 11);
+    var arg_2 = try NumberExprAST.init(test_alloc, newLoc(fname, 2, 13), 13);
     var args_al = ExprASTListType.ArrayList.init(test_alloc);
     try args_al.append(arg_1.tagged());
     try args_al.append(arg_2.tagged());
@@ -1650,7 +1654,7 @@ test "call expr" {
     const callee = "mul";
     var call_expr = try CallExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         callee,
         args,
     );
@@ -1683,7 +1687,7 @@ test "call expr nested" {
     // data passing is correct.
     const makeNum = struct {
         fn func(f: []const u8, l: u32, c: u32, v: f64) !ExprAST {
-            const num = try NumberExprAST.init(test_alloc, .{ .file = f, .line = l, .col = c }, v);
+            const num = try NumberExprAST.init(test_alloc, newLoc(f, l, c), v);
             return num.tagged();
         }
     }.func;
@@ -1698,7 +1702,7 @@ test "call expr nested" {
             const args = try ExprASTListType.fromArrayList(&args_al);
             const call = try CallExprAST.init(
                 test_alloc,
-                .{ .file = f, .line = l, .col = c },
+                newLoc(f, l, c),
                 name,
                 args,
             );
@@ -1715,7 +1719,7 @@ test "call expr nested" {
             const args = try ExprASTListType.fromArrayList(&args_al);
             const call = try CallExprAST.init(
                 test_alloc,
-                .{ .file = f, .line = l, .col = c },
+                newLoc(f, l, c),
                 name,
                 args,
             );
@@ -1736,10 +1740,10 @@ test "print expr" {
     // print(11);
 
     const fname = "foobar.toy";
-    const arg = try NumberExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 11 }, 11);
+    const arg = try NumberExprAST.init(test_alloc, newLoc(fname, 2, 11), 11);
     const print_expr = try PrintExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         arg.tagged(),
     );
 
@@ -1773,7 +1777,7 @@ test "prototype ast" {
     var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
     const decl_expr_1 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 9 },
+        newLoc(fname, 1, 9),
         "a",
         var_type_1.tagged(),
         null,
@@ -1783,7 +1787,7 @@ test "prototype ast" {
     var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
     const decl_expr_2 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 12 },
+        newLoc(fname, 1, 12),
         "b",
         var_type_2.tagged(),
         null,
@@ -1796,7 +1800,7 @@ test "prototype ast" {
     const var_exprs = try PrototypeAST.ArgsType.fromArrayList(&var_exprs_al);
     var proto = try PrototypeAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 5 },
+        newLoc(fname, 1, 5),
         proto_name,
         var_exprs,
     );
@@ -1825,7 +1829,7 @@ test "function ast" {
     var var_type_1 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_1 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 9 },
+        newLoc(fname, 1, 9),
         "a",
         var_type_1.tagged(),
         null,
@@ -1835,7 +1839,7 @@ test "function ast" {
     var var_type_2 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_2 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 12 },
+        newLoc(fname, 1, 12),
         "b",
         var_type_2.tagged(),
         null,
@@ -1848,21 +1852,21 @@ test "function ast" {
     const proto_args = try PrototypeAST.ArgsType.fromArrayList(&args_al);
     const proto = try PrototypeAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 5 },
+        newLoc(fname, 1, 5),
         proto_name,
         proto_args,
     );
 
-    var lhs = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 12 }, "a");
-    var rhs = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 16 }, "b");
+    var lhs = try VariableExprAST.init(test_alloc, newLoc(fname, 2, 12), "a");
+    var rhs = try VariableExprAST.init(test_alloc, newLoc(fname, 2, 16), "b");
     var binary_expr = try BinaryExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 14 },
+        newLoc(fname, 2, 14),
         '*',
         lhs.tagged(),
         rhs.tagged(),
     );
-    var return_expr = try ReturnExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 5 }, binary_expr.tagged());
+    var return_expr = try ReturnExprAST.init(test_alloc, newLoc(fname, 2, 5), binary_expr.tagged());
 
     var body_al = FunctionAST.BodyType.ArrayList.init(test_alloc);
     try body_al.append(return_expr.tagged());
@@ -1915,7 +1919,7 @@ test "struct ast" {
     const vec2_val_t = try VarType.Shaped.fromArrayList(&vec2_val_t_al);
     const vec2_val = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 7 },
+        newLoc(fname, 2, 7),
         "val",
         vec2_val_t.tagged(),
         null,
@@ -1927,7 +1931,7 @@ test "struct ast" {
     const struct_vec2_vars = try StructAST.ArgsType.fromArrayList(&struct_vec2_vars_al);
     var struct_vec2 = try StructAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 8 },
+        newLoc(fname, 1, 8),
         "Vec2",
         struct_vec2_vars,
     );
@@ -1938,7 +1942,7 @@ test "struct ast" {
     const foo_a_t = try VarType.Shaped.fromArrayList(&foo_a_t_al);
     const foo_a = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 7 },
+        newLoc(fname, 5, 7),
         "a",
         foo_a_t.tagged(),
         null,
@@ -1946,7 +1950,7 @@ test "struct ast" {
     const foo_b_t = VarType.Named{ .name = "Vec2" };
     const foo_b = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 5, .col = 7 },
+        newLoc(fname, 5, 7),
         "b",
         foo_b_t.tagged(),
         null,
@@ -1958,7 +1962,7 @@ test "struct ast" {
     const struct_foo_vars = try StructAST.ArgsType.fromArrayList(&struct_foo_vars_al);
     var struct_foo = try StructAST.init(
         test_alloc,
-        .{ .file = fname, .line = 4, .col = 8 },
+        newLoc(fname, 4, 8),
         "Foo",
         struct_foo_vars,
     );
@@ -2027,7 +2031,7 @@ test "module ast" {
     var var_type_1_1 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_1_1 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 9 },
+        newLoc(fname, 1, 9),
         "a",
         var_type_1_1.tagged(),
         null,
@@ -2037,7 +2041,7 @@ test "module ast" {
     var var_type_1_2 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_1_2 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 12 },
+        newLoc(fname, 1, 12),
         "b",
         var_type_1_2.tagged(),
         null,
@@ -2050,23 +2054,23 @@ test "module ast" {
     const args_1 = try PrototypeAST.ArgsType.fromArrayList(&args_al_1);
     const proto_1 = try PrototypeAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 5 },
+        newLoc(fname, 1, 5),
         "mul",
         args_1,
     );
 
-    var lhs_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 12 }, "a");
-    var rhs_1 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 2, .col = 16 }, "b");
+    var lhs_1 = try VariableExprAST.init(test_alloc, newLoc(fname, 2, 12), "a");
+    var rhs_1 = try VariableExprAST.init(test_alloc, newLoc(fname, 2, 16), "b");
     var binary_expr_1 = try BinaryExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         '*',
         lhs_1.tagged(),
         rhs_1.tagged(),
     );
     var return_expr_1 = try ReturnExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 2, .col = 5 },
+        newLoc(fname, 2, 5),
         binary_expr_1.tagged(),
     );
 
@@ -2082,7 +2086,7 @@ test "module ast" {
     var var_type_2_1 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_2_1 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 9 },
+        newLoc(fname, 1, 9),
         "a",
         var_type_2_1.tagged(),
         null,
@@ -2092,7 +2096,7 @@ test "module ast" {
     var var_type_2_2 = try VarType.Shaped.fromArrayList(&type_al);
     const arg_2_2 = try VarDeclExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 1, .col = 12 },
+        newLoc(fname, 1, 12),
         "b",
         var_type_2_2.tagged(),
         null,
@@ -2103,20 +2107,20 @@ test "module ast" {
     try args_al_2.append(arg_2_2);
 
     const args_2 = try PrototypeAST.ArgsType.fromArrayList(&args_al_2);
-    const proto_2 = try PrototypeAST.init(test_alloc, .{ .file = fname, .line = 5, .col = 5 }, "add", args_2);
+    const proto_2 = try PrototypeAST.init(test_alloc, newLoc(fname, 5, 5), "add", args_2);
 
-    var lhs_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 6, .col = 12 }, "a");
-    var rhs_2 = try VariableExprAST.init(test_alloc, .{ .file = fname, .line = 6, .col = 16 }, "b");
+    var lhs_2 = try VariableExprAST.init(test_alloc, newLoc(fname, 6, 12), "a");
+    var rhs_2 = try VariableExprAST.init(test_alloc, newLoc(fname, 6, 16), "b");
     var binary_expr_2 = try BinaryExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 6, .col = 5 },
+        newLoc(fname, 6, 5),
         '+',
         lhs_2.tagged(),
         rhs_2.tagged(),
     );
     var return_expr_2 = try ReturnExprAST.init(
         test_alloc,
-        .{ .file = fname, .line = 6, .col = 5 },
+        newLoc(fname, 6, 5),
         binary_expr_2.tagged(),
     );
 
