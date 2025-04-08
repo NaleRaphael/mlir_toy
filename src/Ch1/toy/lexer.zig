@@ -73,12 +73,11 @@ pub const Token = union(enum) {
         return map.get(ident);
     }
 
-    pub fn str(self: @This()) []const u8 {
+    pub fn str(self: @This(), buf: *[1]u8) []const u8 {
         return switch (self) {
             .tok_ident => |ident| ident,
             .tok_other => |v| {
-                var buf: [1]u8 = undefined;
-                const ret = std.fmt.bufPrint(&buf, "{c}", .{v}) catch "";
+                const ret = std.fmt.bufPrint(buf, "{c}", .{v}) catch "";
                 return ret;
             },
             .tok_semicolon => ";",

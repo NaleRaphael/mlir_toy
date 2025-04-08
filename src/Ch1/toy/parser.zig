@@ -540,9 +540,10 @@ pub const Parser = struct {
     fn printErrMsg(self: Self, expected: []const u8, context: []const u8) void {
         const cur_tok = self._lexer.getCurToken();
         const loc = self._lexer.getLastLocation();
+        var buf = [1]u8{0};
         std.debug.print(
-            "Parse error ({d}, {d}): expected '{s}' {s} but has Token {s}\n",
-            .{ loc.line, loc.col, expected, context, cur_tok.str() },
+            "Parse error ({d}, {d}): expected '{s}' {s} but has Token '{s}'\n",
+            .{ loc.line, loc.col, expected, context, cur_tok.str(&buf) },
         );
     }
 
