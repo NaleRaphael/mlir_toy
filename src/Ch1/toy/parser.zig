@@ -167,13 +167,13 @@ pub const Parser = struct {
                 self.printErrMsg("uniform well-nested dimensions", "inside literal expression");
                 return ParseFailure.ExprAST;
             }
-            var first_literal = values_al.items[0].asPtr(*ast.LiteralExprAST);
+            const first_literal = values_al.items[0].Literal;
             const first_dims = first_literal.getDims();
             try dims_al.appendSlice(first_dims.shape);
 
             // Sanity check
             for (values_al.items) |v| {
-                const expr_literal = v.asPtr(*ast.LiteralExprAST);
+                const expr_literal = v.Literal;
                 const _dims = expr_literal.getDims();
                 if (v != .Literal or !std.mem.eql(i64, _dims.shape, first_dims.shape)) {
                     self.printErrMsg("uniform well-nested dimensions", "inside literal expression");
@@ -385,8 +385,7 @@ pub const Parser = struct {
         const expr = try self.parseExpression();
 
         if (expr != null and expr.?.getKind() == .Literal) {
-            const lit = expr.?.asPtr(*ast.LiteralExprAST);
-            try self.checkTensorShape(var_type, lit);
+            try self.checkTensorShape(var_type, expr.?.Literal);
         }
 
         const var_decl = try ast.VarDeclExprAST.init(self.allocator, loc, var_name, var_type, expr);
@@ -559,7 +558,7 @@ pub const Parser = struct {
                     .Literal => {
                         var total: usize = 0;
                         for (vals) |v| {
-                            total += count(v.asPtr(*ast.LiteralExprAST));
+                            total += count(v.Literal);
                         }
                         return total;
                     },

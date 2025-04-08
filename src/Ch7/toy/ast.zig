@@ -6,7 +6,18 @@ const test_alloc = std.testing.allocator;
 const test_expect = std.testing.expect;
 const isClose = utils.isClose;
 
-fn makeListType(comptime T: type) type {
+// Usage of `ListType` (assume `T = ListType(ElementType)`):
+// 1. Create a temporary ArrayList `al` by `T.ArrayList.init()`.
+// 2. Fill data into that ArrayList `al`.
+// 3. Create a desired instance `obj` with type `T` by `T.fromArrayList(al)`
+// 4. Use the instance `obj` directly or pass it to any other AST type's
+//    `init()`.
+// 5. Call `obj.deinit()` whenever we want to free the memory.
+//    (If `obj` is passed to another AST instance, `obj.deinit()` should be
+//    called from that instance's `deinit()`. That is, the owndership is
+//    handed over to that instance. This principle is also applied to the
+//    temporary ArraryList created in step 1.)
+fn ListType(comptime T: type) type {
     return struct {
         slice: SliceType,
         allocator: std.mem.Allocator,
@@ -29,17 +40,6 @@ fn makeListType(comptime T: type) type {
     };
 }
 
-// Usage of `VarType` and `AnyExprASTListType`:
-// 1. Create a temporary ArrayList `al` by `T.ArrayList.init()`.
-// 2. Fill data into that ArrayList `al`.
-// 3. Create desired instance `obj` with type `T` by `T.fromArrayList(al)`
-// 4. Use the instance `obj` directly or pass it to any further AST type's
-//    `init()`.
-// 5. Call `obj.deinit()` whenever we want to free the memory.
-//    (If `obj` is passed to another AST instance, `obj.deinit()` should be
-//    called from that instance's `deinit()`. That is, the owndership is
-//    handed over to that instance. This principle is also applied to the
-//    temporary ArraryList created in step 1.)
 pub const VarType = union(enum) {
     named: Named,
     shaped: Shaped,
@@ -52,6 +52,7 @@ pub const VarType = union(enum) {
         }
     };
 
+    // See also `ListType` for the usage
     pub const Shaped = struct {
         shape: []i64,
         allocator: std.mem.Allocator,
@@ -116,16 +117,6 @@ pub const ExprAST = union(ExprASTKind) {
             inline else => |v| v.deinit(),
         }
     }
-
-    pub fn asPtr(self: Self, comptime T: type) T {
-        std.debug.assert(@typeInfo(T) == .Pointer);
-        return switch (self) {
-            inline else => |v| {
-                std.debug.assert(@TypeOf(v) == T);
-                return @alignCast(@ptrCast(v));
-            },
-        };
-    }
 };
 
 pub fn BaseExprAST(comptime Context: type) type {
@@ -152,7 +143,7 @@ pub fn BaseExprAST(comptime Context: type) type {
     };
 }
 
-pub const ExprASTListType = makeListType(ExprAST);
+pub const ExprASTListType = ListType(ExprAST);
 pub const ExprASTList = ExprASTListType.SliceType;
 
 pub const NumberExprAST = struct {
@@ -193,7 +184,7 @@ pub const NumberExprAST = struct {
 };
 
 pub const LiteralExprAST = struct {
-    base: BaseExprAST(Self),
+    base: BaseType,
     values: ExprASTListType,
     dims: VarType.Shaped,
 
@@ -246,7 +237,7 @@ pub const LiteralExprAST = struct {
 };
 
 pub const StructLiteralExprAST = struct {
-    base: BaseExprAST(Self),
+    base: BaseType,
     values: ExprASTListType,
 
     const Self = @This();
@@ -291,7 +282,7 @@ pub const StructLiteralExprAST = struct {
 };
 
 pub const VariableExprAST = struct {
-    base: BaseExprAST(Self),
+    base: BaseType,
     name: []const u8,
 
     const Self = @This();
@@ -568,7 +559,7 @@ pub const PrintExprAST = struct {
     }
 };
 
-pub const VarDeclExprASTListType = makeListType(*VarDeclExprAST);
+pub const VarDeclExprASTListType = ListType(*VarDeclExprAST);
 pub const VarDeclExprASTList = VarDeclExprASTListType.SliceType;
 
 pub const PrototypeAST = struct {
@@ -628,16 +619,6 @@ pub const RecordAST = union(RecordASTKind) {
         switch (self) {
             inline else => |v| v.deinit(),
         }
-    }
-
-    pub fn asPtr(self: Self, comptime T: type) T {
-        std.debug.assert(@typeInfo(T) == .Pointer);
-        return switch (self) {
-            inline else => |v| {
-                std.debug.assert(@TypeOf(v) == T);
-                return @alignCast(@ptrCast(v));
-            },
-        };
     }
 };
 
@@ -765,7 +746,7 @@ pub const StructAST = struct {
     }
 };
 
-pub const RecordASTListType = makeListType(RecordAST);
+pub const RecordASTListType = ListType(RecordAST);
 pub const RecordASTList = RecordASTListType.SliceType;
 
 pub const ModuleAST = struct {
@@ -973,10 +954,10 @@ pub const ASTDumper = struct {
     fn printLitHelper(litOrNum: ExprAST, ctx_buf: []u8) void {
         if (litOrNum == .Num) {
             var ff = FloatFormatter.init(6, 2, true);
-            print("{s}", .{ff.format(litOrNum.asPtr(*NumberExprAST).getValue())});
+            print("{s}", .{ff.format(litOrNum.Num.getValue())});
             return;
         }
-        const literal = litOrNum.asPtr(*LiteralExprAST);
+        const literal = litOrNum.Literal;
 
         // Print shape
         print("<", .{});
@@ -1223,7 +1204,7 @@ test "number expr" {
     try test_expect(_loc.line == 10);
     try test_expect(_loc.col == 20);
 
-    var _num_expr = _expr.asPtr(*NumberExprAST);
+    const _num_expr = _expr.Num;
     try test_expect(isClose(f64, _num_expr.getValue(), 42));
 
     // TEST: Make sure we can update value after casting from AnyExprAST back
@@ -1279,17 +1260,18 @@ test "literal expr" {
     try test_expect(_loc.line == 10);
     try test_expect(_loc.col == 20);
 
-    const _lit = expr.asPtr(*LiteralExprAST);
+    const _lit = expr.Literal;
     const _values = _lit.getValues();
     try test_expect(_values[2].getKind() == .Num);
 
-    var _var_num: *NumberExprAST = _values[2].asPtr(*NumberExprAST);
+    // Check whether there is any problem resulted by constness
+    var _var_num: *NumberExprAST = _values[2].Num;
     try test_expect(isClose(f64, _var_num.getValue(), 44));
 
     _var_num.val = 45;
     try test_expect(utils.isClose(f64, _var_num.getValue(), 45));
 
-    const _const_num: *const NumberExprAST = _values[1].asPtr(*NumberExprAST);
+    const _const_num: *const NumberExprAST = _values[1].Num;
     try test_expect(isClose(f64, _const_num.getValue(), 43));
 
     const _dims = _lit.getDims();
@@ -1356,13 +1338,13 @@ test "struct literal expr" {
 
     const _slit_val_1 = _slit_vals[0];
     try test_expect(_slit_val_1.getKind() == .Num);
-    const _num = _slit_val_1.asPtr(*NumberExprAST);
+    const _num = _slit_val_1.Num;
     try test_expect(_num.getValue() == 1);
 
     const _slit_val_2 = _slit_vals[1];
     try test_expect(_slit_val_2.getKind() == .Literal);
 
-    const _lit = _slit_val_2.asPtr(*LiteralExprAST);
+    const _lit = _slit_val_2.Literal;
     const _lit_dims = _lit.getDims();
     try test_expect(_lit_dims.shape.len == 1);
     try test_expect(_lit_dims.shape[0] == 2);
@@ -1370,7 +1352,7 @@ test "struct literal expr" {
     const _lit_vals = _lit.getValues();
     try test_expect(_lit_vals.len == 2);
     try test_expect(_lit_vals[1].getKind() == .Num);
-    const _lit_val_2 = _lit_vals[1].asPtr(*NumberExprAST);
+    const _lit_val_2 = _lit_vals[1].Num;
     try test_expect(_lit_val_2.getValue() == 3);
 }
 
@@ -1387,7 +1369,7 @@ test "variable expr" {
     try test_expect(_loc.line == 10);
     try test_expect(_loc.col == 20);
 
-    var _var = expr.asPtr(*VariableExprAST);
+    const _var = expr.Var;
     try test_expect(std.mem.eql(u8, _var.getName(), "std"));
 }
 
@@ -1422,7 +1404,7 @@ test "declaration expr" {
     try test_expect(expr_1.getKind() == .VarDecl);
     try test_expect(expr_1.loc().col == 1);
 
-    var _decl_expr_1 = expr_1.asPtr(*VarDeclExprAST);
+    const _decl_expr_1 = expr_1.VarDecl;
     try test_expect(std.mem.eql(u8, _decl_expr_1.getName(), ident));
 
     const _type_1 = _decl_expr_1.getType();
@@ -1430,11 +1412,11 @@ test "declaration expr" {
     try test_expect(_type_1.shaped.shape.len == 1);
     try test_expect(_type_1.shaped.shape[0] == 1);
 
-    var _init_val_1 = _decl_expr_1.getInitVal();
+    const _init_val_1 = _decl_expr_1.getInitVal();
     try test_expect(_init_val_1 != null);
     try test_expect(_init_val_1.?.getKind() == .Num);
 
-    var _num_expr_1 = _init_val_1.?.asPtr(*NumberExprAST);
+    const _num_expr_1 = _init_val_1.?.Num;
     try test_expect(isClose(f64, _num_expr_1.getValue(), value));
     try test_expect(_num_expr_1.loc().col == 22);
 
@@ -1454,7 +1436,7 @@ test "declaration expr" {
     var expr_2 = decl_expr_2.tagged();
     defer expr_2.deinit();
 
-    var _decl_expr_2 = expr_2.asPtr(*VarDeclExprAST);
+    const _decl_expr_2 = expr_2.VarDecl;
     const _init_val_2 = _decl_expr_2.getInitVal();
     try test_expect(_init_val_2 == null);
 }
@@ -1491,15 +1473,15 @@ test "return expr" {
     defer expr_1.deinit();
     defer expr_2.deinit();
 
-    var _ret_expr_1 = expr_1.asPtr(*ReturnExprAST);
-    var _ret_expr_2 = expr_2.asPtr(*ReturnExprAST);
+    const _ret_expr_1 = expr_1.Return;
+    const _ret_expr_2 = expr_2.Return;
 
     try test_expect(_ret_expr_1.getExpr() != null);
     try test_expect(_ret_expr_2.getExpr() == null);
 
     try test_expect(_ret_expr_1.getExpr().?.getKind() == .Num);
 
-    var _num_expr = _ret_expr_1.getExpr().?.asPtr(*NumberExprAST);
+    const _num_expr = _ret_expr_1.getExpr().?.Num;
     try test_expect(isClose(f64, _num_expr.getValue(), 42));
 }
 
@@ -1544,11 +1526,11 @@ test "return expr with call" {
 
     try test_expect(expr.getKind() == .Return);
 
-    const _ret_expr = expr.asPtr(*ReturnExprAST);
+    const _ret_expr = expr.Return;
     const _expr = _ret_expr.getExpr();
     try test_expect(_expr.?.getKind() == .Call);
 
-    var _args_2 = _expr.?.asPtr(*CallExprAST).getArgs();
+    const _args_2 = _expr.?.Call.getArgs();
     try test_expect(_args_2.len == 2);
     try test_expect(_args_2[0].getKind() == .Var);
     try test_expect(_args_2[1].getKind() == .Call);
@@ -1574,15 +1556,15 @@ test "binary expr" {
 
     try test_expect(expr.getKind() == .BinOp);
 
-    var _bin_expr = expr.asPtr(*BinaryExprAST);
-    var _lhs = _bin_expr.getLHS();
-    var _rhs = _bin_expr.getRHS();
+    const _bin_expr = expr.BinOp;
+    const _lhs = _bin_expr.getLHS();
+    const _rhs = _bin_expr.getRHS();
     try test_expect(_bin_expr.getOp() == op);
     try test_expect(_lhs.getKind() == .Num);
     try test_expect(_rhs.getKind() == .Num);
 
-    var _num_expr_l = _lhs.asPtr(*NumberExprAST);
-    var _num_expr_r = _rhs.asPtr(*NumberExprAST);
+    const _num_expr_l = _lhs.Num;
+    const _num_expr_r = _rhs.Num;
     try test_expect(isClose(f64, _num_expr_l.getValue(), 11));
     try test_expect(isClose(f64, _num_expr_r.getValue(), 13));
 }
@@ -1627,30 +1609,30 @@ test "binary expr nested" {
 
     try test_expect(expr_3.getKind() == .BinOp);
 
-    var _bin_expr_3 = expr_3.asPtr(*BinaryExprAST);
-    var _lhs_3 = _bin_expr_3.getLHS();
-    var _rhs_3 = _bin_expr_3.getRHS();
+    const _bin_expr_3 = expr_3.BinOp;
+    const _lhs_3 = _bin_expr_3.getLHS();
+    const _rhs_3 = _bin_expr_3.getRHS();
     try test_expect(_bin_expr_3.getOp() == '-');
     try test_expect(_lhs_3.getKind() == .BinOp);
     try test_expect(_rhs_3.getKind() == .Num);
-    try test_expect(isClose(f64, _rhs_3.asPtr(*NumberExprAST).getValue(), 5));
+    try test_expect(isClose(f64, _rhs_3.Num.getValue(), 5));
 
-    var _bin_expr_2 = _lhs_3.asPtr(*BinaryExprAST);
-    var _lhs_2 = _bin_expr_2.getLHS();
-    var _rhs_2 = _bin_expr_2.getRHS();
+    const _bin_expr_2 = _lhs_3.BinOp;
+    const _lhs_2 = _bin_expr_2.getLHS();
+    const _rhs_2 = _bin_expr_2.getRHS();
     try test_expect(_bin_expr_2.getOp() == '*');
     try test_expect(_lhs_2.getKind() == .Num);
-    try test_expect(isClose(f64, _lhs_2.asPtr(*NumberExprAST).getValue(), 3));
+    try test_expect(isClose(f64, _lhs_2.Num.getValue(), 3));
     try test_expect(_rhs_2.getKind() == .BinOp);
 
-    var _bin_expr_1 = _rhs_2.asPtr(*BinaryExprAST);
-    var _lhs_1 = _bin_expr_1.getLHS();
-    var _rhs_1 = _bin_expr_1.getRHS();
+    const _bin_expr_1 = _rhs_2.BinOp;
+    const _lhs_1 = _bin_expr_1.getLHS();
+    const _rhs_1 = _bin_expr_1.getRHS();
     try test_expect(_bin_expr_1.getOp() == '+');
     try test_expect(_lhs_1.getKind() == .Num);
-    try test_expect(isClose(f64, _lhs_1.asPtr(*NumberExprAST).getValue(), 1));
+    try test_expect(isClose(f64, _lhs_1.Num.getValue(), 1));
     try test_expect(_rhs_1.getKind() == .Num);
-    try test_expect(isClose(f64, _rhs_1.asPtr(*NumberExprAST).getValue(), 2));
+    try test_expect(isClose(f64, _rhs_1.Num.getValue(), 2));
 }
 
 test "call expr" {
@@ -1678,16 +1660,16 @@ test "call expr" {
 
     try test_expect(expr.getKind() == .Call);
 
-    var _call_expr = expr.asPtr(*CallExprAST);
+    const _call_expr = expr.Call;
     try test_expect(std.mem.eql(u8, _call_expr.getCallee(), callee));
 
-    var _args = _call_expr.getArgs();
+    const _args = _call_expr.getArgs();
     try test_expect(_args.len == 2);
     try test_expect(_args[0].getKind() == .Num);
     try test_expect(_args[1].getKind() == .Num);
 
-    var _num_expr_1 = _args[0].asPtr(*NumberExprAST);
-    var _num_expr_2 = _args[1].asPtr(*NumberExprAST);
+    const _num_expr_1 = _args[0].Num;
+    const _num_expr_2 = _args[1].Num;
     try test_expect(isClose(f64, _num_expr_1.getValue(), 11));
     try test_expect(isClose(f64, _num_expr_2.getValue(), 13));
 }
@@ -1766,11 +1748,11 @@ test "print expr" {
 
     try test_expect(expr.getKind() == .Print);
 
-    var _print_expr = expr.asPtr(*PrintExprAST);
-    var _arg = _print_expr.getArg();
+    const _print_expr = expr.Print;
+    const _arg = _print_expr.getArg();
     try test_expect(_arg.getKind() == .Num);
 
-    var _num_expr = _arg.asPtr(*NumberExprAST);
+    const _num_expr = _arg.Num;
     try test_expect(isClose(f64, _num_expr.getValue(), 11));
 }
 
@@ -1900,17 +1882,17 @@ test "function ast" {
     try test_expect(_body.len == 1);
     try test_expect(_body[0].getKind() == .Return);
 
-    const _return_expr = _body[0].asPtr(*ReturnExprAST);
+    const _return_expr = _body[0].Return;
     try test_expect(_return_expr.getExpr() != null);
     try test_expect(_return_expr.getExpr().?.getKind() == .BinOp);
 
-    const _binary_expr = _return_expr.getExpr().?.asPtr(*BinaryExprAST);
+    const _binary_expr = _return_expr.getExpr().?.BinOp;
     try test_expect(_binary_expr.getOp() == '*');
     try test_expect(_binary_expr.getLHS().getKind() == .Var);
     try test_expect(_binary_expr.getRHS().getKind() == .Var);
 
-    const _lhs = _binary_expr.getLHS().asPtr(*VariableExprAST);
-    const _rhs = _binary_expr.getRHS().asPtr(*VariableExprAST);
+    const _lhs = _binary_expr.getLHS().Var;
+    const _rhs = _binary_expr.getRHS().Var;
     try test_expect(std.mem.eql(u8, _lhs.getName(), "a"));
     try test_expect(std.mem.eql(u8, _rhs.getName(), "b"));
 }
@@ -1986,7 +1968,7 @@ test "struct ast" {
     const type_erased_vec2 = struct_vec2.tagged();
     try test_expect(type_erased_vec2.getKind() == .Struct);
 
-    const _struct_vec2 = type_erased_vec2.asPtr(*StructAST);
+    const _struct_vec2 = type_erased_vec2.Struct;
     try test_expect(std.mem.eql(u8, _struct_vec2.getName(), "Vec2"));
     try test_expect(_struct_vec2.loc().line == 1);
 
@@ -2008,7 +1990,7 @@ test "struct ast" {
     const type_erased_foo = struct_foo.tagged();
     try test_expect(type_erased_foo.getKind() == .Struct);
 
-    const _struct_foo = type_erased_foo.asPtr(*StructAST);
+    const _struct_foo = type_erased_foo.Struct;
     try test_expect(std.mem.eql(u8, _struct_foo.getName(), "Foo"));
     try test_expect(_struct_foo.loc().line == 4);
 
@@ -2159,11 +2141,11 @@ test "module ast" {
     const _records = module.getRecords();
     try test_expect(_records.len == 2);
 
-    const _func_1 = _records[0].asPtr(*FunctionAST);
+    const _func_1 = _records[0].Function;
     try test_expect(std.mem.eql(u8, _func_1.getProto().getName(), "mul"));
     try test_expect(_func_1.getProto().getArgs().len == 2);
 
-    const _func_2 = _records[1].asPtr(*FunctionAST);
+    const _func_2 = _records[1].Function;
     try test_expect(std.mem.eql(u8, _func_2.getProto().getName(), "add"));
     try test_expect(_func_2.getProto().getArgs().len == 2);
 }

@@ -6,9 +6,9 @@ function_map: func_map_t,
 struct_map: struct_map_t,
 allocator: Allocator,
 
-const SymbolTableValue = makePair(c.MlirValue, *ast.VarDeclExprAST);
-const StructMapValue = makePair(c.MlirType, *ast.StructAST);
-const MLIRStructLiteralData = makePair(c.MlirAttribute, c.MlirType);
+const SymbolTableValue = Pair(c.MlirValue, *ast.VarDeclExprAST);
+const StructMapValue = Pair(c.MlirType, *ast.StructAST);
+const MLIRStructLiteralData = Pair(c.MlirAttribute, c.MlirType);
 
 const symbol_table_t = ScopedHashMap(
     []const u8,
@@ -748,7 +748,7 @@ fn collectData(
     }
 }
 
-fn makePair(comptime t1: type, comptime t2: type) type {
+fn Pair(comptime t1: type, comptime t2: type) type {
     return struct { v1: t1, v2: t2 };
 }
 
