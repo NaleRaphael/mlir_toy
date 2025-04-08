@@ -95,7 +95,7 @@ pub fn readMLIRFromToy(
     var module_ast = try parseInputFile(file_path, allocator);
     defer module_ast.deinit();
 
-    const module = try mlirgen.fromModule(module_ast) orelse {
+    const module = mlirgen.fromModule(module_ast) catch {
         return error.FailedToGenMLIR;
     };
 
