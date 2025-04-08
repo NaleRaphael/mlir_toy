@@ -12,7 +12,17 @@ const symbol_table_t = ScopedHashMap(
 );
 
 const ArrayListF64 = std.ArrayList(f64);
-const MLIRGenError = Allocator.Error || error{};
+const MLIRGenError = Allocator.Error || error{
+    Module,
+    Function,
+    Var,
+    VarDecl,
+    BinOp,
+    Literal,
+    Call,
+    Expr,
+    Redeclaration,
+};
 
 pub fn init(ctx: c.MlirContext, allocator: Allocator) Self {
     const op_builder = c.mlirOpBuilderCreate(ctx);
@@ -31,7 +41,7 @@ pub fn deinit(self: *Self) void {
     c.mlirModuleDestroy(self.module);
 }
 
-pub fn fromModule(self: *Self, module_ast: *ast.ModuleAST) MLIRGenError!?c.MlirModule {
+pub fn fromModule(self: *Self, module_ast: *ast.ModuleAST) MLIRGenError!c.MlirModule {
     // Delete existing module and create a new & empty one
     if (!c.mlirModuleIsNull(self.module)) {
         c.mlirModuleDestroy(self.module);
@@ -47,17 +57,16 @@ pub fn fromModule(self: *Self, module_ast: *ast.ModuleAST) MLIRGenError!?c.MlirM
     const module_op = c.mlirModuleGetOperation(self.module);
     if (c.mlirLogicalResultIsFailure(c.mlirExtVerify(module_op))) {
         c.mlirExtOperationEmitError(module_op, "module verification error");
-        return null;
+        return MLIRGenError.Module;
     }
     return self.module;
 }
 
-fn declare(self: *Self, name: []const u8, value: c.MlirValue) MLIRGenError!bool {
+fn declare(self: *Self, name: []const u8, value: c.MlirValue) MLIRGenError!void {
     if (self.symbol_table.contains(name)) {
-        return false;
+        return MLIRGenError.Redeclaration;
     }
     try self.symbol_table.put(name, value);
-    return true;
 }
 
 fn fromProto(self: *Self, proto_ast: *ast.PrototypeAST) MLIRGenError!c.MlirToyFuncOp {
@@ -89,7 +98,7 @@ fn fromProto(self: *Self, proto_ast: *ast.PrototypeAST) MLIRGenError!c.MlirToyFu
     return c.mlirToyFuncOpCreateFromFunctionType(self.op_builder, loc, name, func_t);
 }
 
-fn fromFunc(self: *Self, func_ast: *ast.FunctionAST) MLIRGenError!?c.MlirToyFuncOp {
+fn fromFunc(self: *Self, func_ast: *ast.FunctionAST) MLIRGenError!c.MlirToyFuncOp {
     try self.symbol_table.createScope();
     defer self.symbol_table.destroyScope();
 
@@ -99,7 +108,10 @@ fn fromFunc(self: *Self, func_ast: *ast.FunctionAST) MLIRGenError!?c.MlirToyFunc
 
     const op = c.mlirToyFuncOpToMlirOperation(func_op);
     if (c.mlirOperationIsNull(op)) {
-        return null;
+        const _proto = func_ast.getProto();
+        const _loc = locToMlirLoc(self.ctx, _proto.loc());
+        emitError(_loc, "failed to generate `toy::FuncOp` for function '{s}'", .{_proto.getName()});
+        return MLIRGenError.Function;
     }
 
     const first_region = c.mlirOperationGetFirstRegion(op);
@@ -109,19 +121,22 @@ fn fromFunc(self: *Self, func_ast: *ast.FunctionAST) MLIRGenError!?c.MlirToyFunc
     const n_args = c.mlirBlockGetNumArguments(entry_block);
     for (0..@intCast(n_args)) |i| {
         const arg = c.mlirBlockGetArgument(entry_block, @intCast(i));
-        const success = try self.declare(proto_args[i].getName(), arg);
-        if (!success) {
-            return null;
-        }
+        self.declare(proto_args[i].getName(), arg) catch |err| {
+            const _loc = locToMlirLoc(self.ctx, proto_args[i].loc());
+            emitError(_loc, "variable '{s}' is already declared in prototype '{s}'", .{
+                proto_args[i].getName(), func_ast.getProto().getName(),
+            });
+            return err;
+        };
     }
 
     c.mlirOpBuilderSetInsertionPointToStart(self.op_builder, entry_block);
 
     const func_body = func_ast.getBody();
-    if (!try self.fromBlock(func_body)) {
+    self.fromBlock(func_body) catch |err| {
         c.mlirToyFuncOpErase(func_op);
-        return null;
-    }
+        return err;
+    };
 
     // Implicitly return void if no return statement was emitted.
     // NOTE: in the original example "toy/Ch2/mlir/MLIRGen.cpp", here the
@@ -169,9 +184,9 @@ fn fromFunc(self: *Self, func_ast: *ast.FunctionAST) MLIRGenError!?c.MlirToyFunc
     return func_op;
 }
 
-fn fromBinary(self: *Self, bin: *ast.BinaryExprAST) MLIRGenError!?c.MlirValue {
-    const lhs = try self.fromExpr(bin.getLHS()) orelse return null;
-    const rhs = try self.fromExpr(bin.getRHS()) orelse return null;
+fn fromBinary(self: *Self, bin: *ast.BinaryExprAST) MLIRGenError!c.MlirValue {
+    const lhs = try self.fromExpr(bin.getLHS());
+    const rhs = try self.fromExpr(bin.getRHS());
     const loc = locToMlirLoc(self.ctx, bin.loc());
 
     // NOTE: Currently we only support AddOp and MulOp in this chapter.
@@ -180,12 +195,12 @@ fn fromBinary(self: *Self, bin: *ast.BinaryExprAST) MLIRGenError!?c.MlirValue {
         '*' => return c.mlirToyMulOpCreate(self.op_builder, loc, lhs, rhs),
         else => |v| {
             emitError(loc, "invalid binary operator '{c}'", .{v});
-            return null;
+            return MLIRGenError.BinOp;
         },
     }
 }
 
-fn fromVar(self: *Self, expr: *ast.VariableExprAST) ?c.MlirValue {
+fn fromVar(self: *Self, expr: *ast.VariableExprAST) MLIRGenError!c.MlirValue {
     const name = expr.getName();
     if (self.symbol_table.get(name)) |v| {
         return v;
@@ -193,22 +208,21 @@ fn fromVar(self: *Self, expr: *ast.VariableExprAST) ?c.MlirValue {
 
     const loc = locToMlirLoc(self.ctx, expr.loc());
     emitError(loc, "error: unknown variable '{s}'", .{name});
-    return null;
+    return MLIRGenError.Var;
 }
 
-fn fromReturn(self: *Self, ret: *ast.ReturnExprAST) MLIRGenError!bool {
+fn fromReturn(self: *Self, ret: *ast.ReturnExprAST) MLIRGenError!void {
     const loc = locToMlirLoc(self.ctx, ret.loc());
 
     var operands = [1]c.MlirValue{undefined};
     var n_operands: i64 = 0;
     if (ret.getExpr()) |expr| {
-        operands[0] = try self.fromExpr(expr) orelse return false;
+        operands[0] = try self.fromExpr(expr);
         n_operands += 1;
     }
 
     std.debug.assert(n_operands <= 1);
     c.mlirToyReturnOpCreate(self.op_builder, loc, n_operands, &operands);
-    return true;
 }
 
 fn fromLiteral(self: *Self, lit: *ast.LiteralExprAST) MLIRGenError!c.MlirValue {
@@ -247,7 +261,7 @@ fn fromLiteral(self: *Self, lit: *ast.LiteralExprAST) MLIRGenError!c.MlirValue {
     return c.mlirToyConstantOpCreateFromTensor(self.op_builder, loc, shape_t, data_attr);
 }
 
-fn fromCall(self: *Self, call: *ast.CallExprAST) MLIRGenError!?c.MlirValue {
+fn fromCall(self: *Self, call: *ast.CallExprAST) MLIRGenError!c.MlirValue {
     const callee = call.getCallee();
     const loc = locToMlirLoc(self.ctx, call.loc());
 
@@ -256,15 +270,14 @@ fn fromCall(self: *Self, call: *ast.CallExprAST) MLIRGenError!?c.MlirValue {
     defer operands.deinit();
 
     for (args) |arg| {
-        const result = try self.fromExpr(arg) orelse return null;
+        const result = try self.fromExpr(arg);
         try operands.append(result);
     }
 
     if (std.mem.eql(u8, callee, "transpose")) {
         if (args.len != 1) {
-            const msg = "MLIR codegen encountered an error: toy.transpose does not accept multiple arguments";
-            emitError(loc, msg, .{});
-            return null;
+            emitError(loc, "toy.transpose does not accept multiple arguments", .{});
+            return MLIRGenError.Call;
         }
         return c.mlirToyTransposeOpCreate(self.op_builder, loc, operands.items[0]);
     }
@@ -278,11 +291,10 @@ fn fromCall(self: *Self, call: *ast.CallExprAST) MLIRGenError!?c.MlirValue {
     );
 }
 
-fn fromPrint(self: *Self, call: *ast.PrintExprAST) MLIRGenError!bool {
-    const arg = try self.fromExpr(call.getArg()) orelse return false;
+fn fromPrint(self: *Self, call: *ast.PrintExprAST) MLIRGenError!void {
+    const arg = try self.fromExpr(call.getArg());
     const loc = locToMlirLoc(self.ctx, call.loc());
     c.mlirToyPrintOpCreate(self.op_builder, loc, arg);
-    return true;
 }
 
 fn fromNumber(self: *Self, num: *ast.NumberExprAST) c.MlirValue {
@@ -290,10 +302,10 @@ fn fromNumber(self: *Self, num: *ast.NumberExprAST) c.MlirValue {
     return c.mlirToyConstantOpCreateFromDouble(self.op_builder, loc, num.getValue());
 }
 
-fn fromExpr(self: *Self, expr: ast.ExprAST) MLIRGenError!?c.MlirValue {
+fn fromExpr(self: *Self, expr: ast.ExprAST) MLIRGenError!c.MlirValue {
     switch (expr) {
         .BinOp => |v| return try self.fromBinary(v),
-        .Var => |v| return self.fromVar(v),
+        .Var => |v| return try self.fromVar(v),
         .Literal => |v| return try self.fromLiteral(v),
         .Call => |v| return try self.fromCall(v),
         .Num => |v| return self.fromNumber(v),
@@ -301,19 +313,19 @@ fn fromExpr(self: *Self, expr: ast.ExprAST) MLIRGenError!?c.MlirValue {
             const loc = locToMlirLoc(self.ctx, expr.loc());
             const msg = "MLIR codegen encountered an unhandled expr kind '{s}'";
             emitError(loc, msg, .{@tagName(tag)});
-            return null;
+            return MLIRGenError.Expr;
         },
     }
 }
 
-fn fromVarDecl(self: *Self, var_decl: *ast.VarDeclExprAST) MLIRGenError!?c.MlirValue {
+fn fromVarDecl(self: *Self, var_decl: *ast.VarDeclExprAST) MLIRGenError!c.MlirValue {
     const init_val = var_decl.getInitVal() orelse {
         const loc = locToMlirLoc(self.ctx, var_decl.loc());
         emitError(loc, "missing initializer in variable declaration.", .{});
-        return null;
+        return MLIRGenError.VarDecl;
     };
 
-    var value = try self.fromExpr(init_val) orelse return null;
+    var value = try self.fromExpr(init_val);
 
     // We have the initializer value, but in case the variable was declared
     // with specific shape, we emit a "reshape" operation. It will get
@@ -334,36 +346,32 @@ fn fromVarDecl(self: *Self, var_decl: *ast.VarDeclExprAST) MLIRGenError!?c.MlirV
         value = c.mlirToyReshapeOpCreate(self.op_builder, loc, shape_t, value);
     }
 
-    if (!try self.declare(var_decl.getName(), value)) {
-        return null;
-    }
+    self.declare(var_decl.getName(), value) catch |err| {
+        const _loc = locToMlirLoc(self.ctx, var_decl.loc());
+        emitError(_loc, "variable '{s}' has been declared already", .{var_decl.getName()});
+        return err;
+    };
     return value;
 }
 
-fn fromBlock(self: *Self, block: ast.ExprASTList) MLIRGenError!bool {
+fn fromBlock(self: *Self, block: ast.ExprASTList) MLIRGenError!void {
     try self.symbol_table.createScope();
     defer self.symbol_table.destroyScope();
 
     for (block) |expr| switch (expr) {
         .VarDecl => |v| {
-            _ = try self.fromVarDecl(v) orelse return false;
+            _ = try self.fromVarDecl(v);
         },
         .Return => |v| {
             _ = try self.fromReturn(v);
         },
         .Print => |v| {
-            // XXX: here we return false when it failed to generate `PrintOp`,
-            // but it's weird that it returns `mlir::success` in the original
-            // example.
-            if (!try self.fromPrint(v)) {
-                return false;
-            }
+            try self.fromPrint(v);
         },
         inline else => {
-            _ = try self.fromExpr(expr) orelse return false;
+            _ = try self.fromExpr(expr);
         },
     };
-    return true;
 }
 
 fn locToMlirLoc(ctx: c.MlirContext, loc: lexer.Location) c.MlirLocation {
@@ -387,20 +395,24 @@ fn collectData(
     expr: ast.ExprAST,
     data: *ArrayListF64,
     assume_capacity: bool,
-) Allocator.Error!void {
-    if (expr == .Literal) {
-        const lit = expr.Literal;
-        for (lit.getValues()) |v| {
-            try collectData(v, data, assume_capacity);
-        }
-        return;
-    }
-
-    std.debug.assert(expr.getKind() == .Num);
-    if (assume_capacity) {
-        data.appendAssumeCapacity(expr.Num.getValue());
-    } else {
-        try data.append(expr.Num.getValue());
+) MLIRGenError!void {
+    switch (expr) {
+        .Literal => {
+            const lit = expr.Literal;
+            for (lit.getValues()) |v| {
+                try collectData(v, data, assume_capacity);
+            }
+        },
+        .Num => {
+            if (assume_capacity) {
+                data.appendAssumeCapacity(expr.Num.getValue());
+            } else {
+                try data.append(expr.Num.getValue());
+            }
+        },
+        else => {
+            return MLIRGenError.Literal;
+        },
     }
 }
 

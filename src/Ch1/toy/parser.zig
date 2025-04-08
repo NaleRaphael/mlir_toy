@@ -81,12 +81,7 @@ pub const Parser = struct {
         var ret: *ast.ReturnExprAST = undefined;
         if (self._lexer.getCurToken() != .tok_semicolon) {
             const expr = try self.parseExpression();
-            if (expr) |v| {
-                ret = try ast.ReturnExprAST.init(self.allocator, loc, v);
-            } else {
-                std.debug.print("Invalid expression for ReturnExpr", .{});
-                return ParseFailure.Return;
-            }
+            ret = try ast.ReturnExprAST.init(self.allocator, loc, expr);
         } else {
             ret = try ast.ReturnExprAST.init(self.allocator, loc, null);
         }
@@ -104,7 +99,7 @@ pub const Parser = struct {
 
     /// tensorLiteral ::= [ literalList ] | number
     /// literalList ::= tensorLiteral | tensorLiteral, literalList
-    fn parseTensorLiteralExpr(self: Self) ParseError!?ast.ExprAST {
+    fn parseTensorLiteralExpr(self: Self) ParseError!ast.ExprAST {
         const loc = self._lexer.getLastLocation();
         try self.consumeToken(.tok_sbracket_open);
 
@@ -115,11 +110,7 @@ pub const Parser = struct {
         while (true) {
             if (self._lexer.getCurToken() == .tok_sbracket_open) {
                 const literal = try self.parseTensorLiteralExpr();
-                if (literal) |v| {
-                    try values_al.append(v);
-                } else {
-                    return null; // prase error in the nested arrary
-                }
+                try values_al.append(literal);
             } else {
                 if (self._lexer.getCurToken() != .tok_num) {
                     self.printErrMsg("<num> or [", "in literal expression");
@@ -190,26 +181,23 @@ pub const Parser = struct {
 
     /// Parse parenthesized expression.
     /// parenexpr ::= '(' expression ')'
-    fn parseParenExpr(self: Self) ParseError!?ast.ExprAST {
+    fn parseParenExpr(self: Self) ParseError!ast.ExprAST {
         _ = try self.getNextToken();
 
         const expr = try self.parseExpression();
-        if (expr) |v| {
-            if (self._lexer.getCurToken() != .tok_parenthese_close) {
-                self.printErrMsg(")", "to close expression with parentheses");
-                return ParseFailure.ExprAST;
-            }
-            try self.consumeToken(.tok_parenthese_close);
-            return v;
-        } else {
-            return null;
+
+        if (self._lexer.getCurToken() != .tok_parenthese_close) {
+            self.printErrMsg(")", "to close expression with parentheses");
+            return ParseFailure.ExprAST;
         }
+        try self.consumeToken(.tok_parenthese_close);
+        return expr;
     }
 
     /// identifierexpr
     ///   ::= identifier
     ///   ::= identifier '(' expression ')'
-    fn parseIdentifierExpr(self: Self) ParseError!?ast.ExprAST {
+    fn parseIdentifierExpr(self: Self) ParseError!ast.ExprAST {
         const name = self._lexer.getId();
         const loc = self._lexer.getLastLocation();
         _ = try self.getNextToken();
@@ -224,11 +212,7 @@ pub const Parser = struct {
         if (self._lexer.getCurToken() != .tok_parenthese_close) {
             while (true) {
                 const expr = try self.parseExpression();
-                if (expr) |arg| {
-                    try args_al.append(arg);
-                } else {
-                    return null;
-                }
+                try args_al.append(expr);
 
                 const cur_tok = self._lexer.getCurToken();
                 if (cur_tok == .tok_parenthese_close) {
@@ -264,16 +248,14 @@ pub const Parser = struct {
     ///   ::= numberexpr
     ///   ::= parenexpr
     ///   ::= tensorexpr
-    fn parsePrimary(self: Self) ParseError!?ast.ExprAST {
+    fn parsePrimary(self: Self) ParseError!ast.ExprAST {
         const cur_tok = self._lexer.getCurToken();
         switch (cur_tok) {
-            .tok_ident => return self.parseIdentifierExpr(),
-            .tok_num => return self.parseNumberExpr() catch null,
-            .tok_parenthese_open => return self.parseParenExpr(),
-            .tok_sbracket_open => return self.parseTensorLiteralExpr(),
-            .tok_semicolon => return null,
-            .tok_cbracket_close => return null,
-            .tok_other => return null,
+            .tok_ident => return try self.parseIdentifierExpr(),
+            .tok_num => return try self.parseNumberExpr(),
+            .tok_parenthese_open => return try self.parseParenExpr(),
+            .tok_sbracket_open => return try self.parseTensorLiteralExpr(),
+            .tok_semicolon, .tok_cbracket_close, .tok_other => return ParseFailure.Unexpected,
             else => {
                 const loc = self._lexer.getLastLocation();
                 std.debug.print(
@@ -286,7 +268,7 @@ pub const Parser = struct {
     }
 
     /// binoprhs ::= ('+' primary)*
-    fn parseBinOpRHS(self: Self, expr_prec: i32, lhs: ast.ExprAST) ParseError!?ast.ExprAST {
+    fn parseBinOpRHS(self: Self, expr_prec: i32, lhs: ast.ExprAST) ParseError!ast.ExprAST {
         var lhs_ = lhs;
 
         while (true) {
@@ -300,33 +282,25 @@ pub const Parser = struct {
             try self.consumeToken(cur_tok);
             const loc = self._lexer.getLastLocation();
 
-            var rhs = try self.parsePrimary();
-            if (rhs == null) {
+            var rhs = self.parsePrimary() catch {
                 self.printErrMsg("expression", "to complete binary operator");
                 return ParseFailure.ExprAST;
-            }
+            };
 
             const next_prec = self.getTokPrecedence();
             if (tok_prec < next_prec) {
-                rhs = try self.parseBinOpRHS(tok_prec + 1, rhs.?);
-                if (rhs == null) {
-                    return null;
-                }
+                rhs = try self.parseBinOpRHS(tok_prec + 1, rhs);
             }
 
-            const bin_expr = try ast.BinaryExprAST.init(self.allocator, loc, bin_op, lhs_, rhs.?);
+            const bin_expr = try ast.BinaryExprAST.init(self.allocator, loc, bin_op, lhs_, rhs);
             lhs_ = bin_expr.tagged();
         }
     }
 
     /// expression ::= primary binop rhs
-    fn parseExpression(self: Self) ParseError!?ast.ExprAST {
+    fn parseExpression(self: Self) ParseError!ast.ExprAST {
         const lhs = try self.parsePrimary();
-        if (lhs) |v| {
-            return try self.parseBinOpRHS(0, v);
-        } else {
-            return null;
-        }
+        return self.parseBinOpRHS(0, lhs);
     }
 
     /// type ::= < shape_list >
@@ -367,6 +341,11 @@ pub const Parser = struct {
         const loc = self._lexer.getLastLocation();
         _ = try self.getNextToken();
 
+        if (self._lexer.getCurToken() != .tok_ident) {
+            self.printErrMsg("identifier", "after 'var' declaration");
+            return ParseFailure.VarDeclExprAST;
+        }
+
         const var_name = self._lexer.getId();
         _ = try self.getNextToken();
 
@@ -380,12 +359,20 @@ pub const Parser = struct {
                 break :blk try ast.VarType.fromArrayList(&shape_al);
             }
         };
-        try self.consumeToken(lexer.Token{ .tok_other = '=' });
 
-        const expr = try self.parseExpression();
+        var expr: ?ast.ExprAST = null;
 
-        if (expr != null and expr.?.getKind() == .Literal) {
-            try self.checkTensorShape(var_type, expr.?.Literal);
+        // NOTE: we have to check whether the next token is '=' before parsing
+        // it as an expression. Otherwise, we would consume token incorrectly.
+        const tok_assign = lexer.Token{ .tok_other = '=' };
+        if (std.meta.eql(self._lexer.getCurToken(), tok_assign)) {
+            try self.consumeToken(lexer.Token{ .tok_other = '=' });
+
+            expr = try self.parseExpression();
+            if (expr.?.getKind() == .Literal) {
+                const lit = expr.?.Literal;
+                try self.checkTensorShape(var_type, lit);
+            }
         }
 
         const var_decl = try ast.VarDeclExprAST.init(self.allocator, loc, var_name, var_type, expr);
@@ -422,17 +409,7 @@ pub const Parser = struct {
                 },
                 else => {
                     const expr = try self.parseExpression();
-                    if (expr) |v| {
-                        try body_al.append(v);
-                    } else {
-                        // In C++ impl, it returns a nullptr here. But we want
-                        // to avoid abusing it.
-                        const loc = self._lexer.getLastLocation();
-                        std.debug.print(
-                            "Parse error ({d}, {d}): Invalid declaration/expression while parsing body\n",
-                            .{ loc.line, loc.col },
-                        );
-                    }
+                    try body_al.append(expr);
                 },
             }
 

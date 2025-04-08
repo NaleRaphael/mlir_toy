@@ -71,7 +71,7 @@ pub fn dumpMLIRFromToy(
     var mlirgen = MLIRGen.init(ctx, allocator);
     defer mlirgen.deinit();
 
-    const module = try mlirgen.fromModule(module_ast) orelse {
+    const module = mlirgen.fromModule(module_ast) catch {
         return error.FailedToGenMLIR;
     };
 

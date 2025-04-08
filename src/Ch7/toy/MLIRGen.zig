@@ -674,9 +674,10 @@ fn fromVarDecl(self: *Self, var_decl: *ast.VarDeclExprAST) MLIRGenError!c.MlirVa
         },
     }
 
-    self.declare(var_decl, value) catch {
+    self.declare(var_decl, value) catch |err| {
         const _loc = locToMlirLoc(self.ctx, var_decl.loc());
         emitError(_loc, "variable '{s}' has been declared already", .{var_decl.getName()});
+        return err;
     };
     return value;
 }
