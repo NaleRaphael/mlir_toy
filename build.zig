@@ -63,12 +63,6 @@ pub fn build(b: *std.Build) !void {
             "use_custom_libcxx",
             "Use the libc++ supplied under `$LLVM_DIR` instead of the one built by Zig.",
         ) orelse false,
-        // TODO: this option seems not been used anymore, maybe we can remove it?
-        .bin_llvm_lit = b.option(
-            []const u8,
-            "bin_llvm_lit",
-            "Path of `llvm-lit` tool",
-        ) orelse "",
     };
     const options_step = b.addOptions();
     inline for (std.meta.fields(@TypeOf(options))) |field| {
@@ -84,7 +78,6 @@ pub fn build(b: *std.Build) !void {
     const misc_config = bc.MiscConfig{
         .build_dialect = options.build_dialect,
         .use_custom_libcxx = options.use_custom_libcxx,
-        .bin_llvm_lit = options.bin_llvm_lit,
     };
 
     const path_join = std.fs.path.join;

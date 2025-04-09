@@ -15,11 +15,9 @@ pub const BuildConfig = struct {
 ///   everytime when "build.zig" is invoked.
 /// - use_custom_libcxx: Link to the libcxx supplied under `$LLVM_DIR` instead
 ///   of the one built by Zig.
-/// - bin_llvm_lit: Path of LLVM's LIT tool. (deprecated)
 pub const MiscConfig = struct {
     build_dialect: bool,
     use_custom_libcxx: bool,
-    bin_llvm_lit: ?[]const u8,
 };
 
 /// Patterns:
