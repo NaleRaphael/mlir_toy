@@ -12,7 +12,7 @@ const symbol_table_t = ScopedHashMap(
 );
 
 const ArrayListF64 = std.ArrayList(f64);
-const MLIRGenError = Allocator.Error || error{
+pub const MLIRGenError = Allocator.Error || error{
     Module,
     Function,
     Var,

@@ -20,7 +20,7 @@ const func_map_t = std.StringHashMap(c.MlirToyFuncOp);
 const struct_map_t = std.StringHashMap(StructMapValue);
 
 const ArrayListF64 = std.ArrayList(f64);
-const MLIRGenError = Allocator.Error || error{
+pub const MLIRGenError = Allocator.Error || error{
     Module,
     Function,
     Type,

@@ -152,7 +152,6 @@ MlirValue mlirToyStructAccessOpCreate(
     mlir::Value _input = unwrap(input);
     auto _index = static_cast<size_t>(index);
 
-    // TODO: check whehter we should cast index from `intptr_t` to `size_t`
     auto op = builder->create<mlir::toy::StructAccessOp>(_loc, _input, _index);
     return wrap(op.getOutput());
 }
@@ -183,8 +182,6 @@ MlirValue mlirToyStructConstantOpCreate(
 // builder `op` would have a method `getResult()` only when the field `results`
 // is defined.
 
-// TODO: remove this. Try to create constant from Zig side directly like:
-// https://github.com/llvm/llvm-project/blob/main/mlir/test/CAPI/ir.c#L1862-L1873
 MlirValue mlirToyConstantOpCreateFromDouble(
     MlirOpBuilder op_builder, MlirLocation loc, double value
 ) {

@@ -381,6 +381,8 @@ pub const Parser = struct {
 
         var shape_al = ast.VarType.Shaped.ArrayList.init(self.allocator);
         while (self._lexer.getCurToken() == .tok_num) {
+            // XXX: currently we don't enforce that every number in `shape` has
+            // to be an integer, though it should be caught as an error.
             try shape_al.append(@intFromFloat(self._lexer.getValue()));
             const next_tok = try self.getNextToken();
             const tok_comma = lexer.Token{ .tok_other = ',' };

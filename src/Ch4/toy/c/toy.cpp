@@ -127,8 +127,6 @@ bool mlirToyReturnOpHasOperand(MlirToyReturnOp toy_return_op) {
 // builder `op` would have a method `getResult()` only when the field `results`
 // is defined.
 
-// TODO: remove this. Try to create constant from Zig side directly like:
-// https://github.com/llvm/llvm-project/blob/main/mlir/test/CAPI/ir.c#L1862-L1873
 MlirValue mlirToyConstantOpCreateFromDouble(
     MlirOpBuilder op_builder, MlirLocation loc, double value
 ) {
