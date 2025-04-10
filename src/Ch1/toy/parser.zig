@@ -6,15 +6,13 @@ pub const ParseFailure = error{
     Module,
     Definition,
     Prototype,
-    ExprASTList,
     ExprAST,
     Block,
     VarDeclExprAST,
     VarType,
     Literal,
+    Call,
     Return,
-    Unexpected,
-    InvalidToken,
 };
 
 pub const ParseError = ParseFailure ||
@@ -142,7 +140,7 @@ pub const Parser = struct {
             } else {
                 if (self._lexer.getCurToken() != .tok_num) {
                     self.printErrMsg("<num> or [", "in literal expression");
-                    return ParseFailure.ExprAST;
+                    return ParseFailure.Literal;
                 }
 
                 var num = try self.parseNumberExpr();
@@ -159,14 +157,14 @@ pub const Parser = struct {
             // Elements are separated by a comma
             if (!std.meta.eql(self._lexer.getCurToken(), tok_comma)) {
                 self.printErrMsg("] or ,", "in literal expression");
-                return ParseFailure.ExprAST;
+                return ParseFailure.Literal;
             }
             _ = try self.getNextToken(); // eat ,
         }
 
         if (values_al.items.len == 0) {
             self.printErrMsg("<something>", "to fill literal expression");
-            return ParseFailure.ExprAST;
+            return ParseFailure.Literal;
         }
         _ = try self.getNextToken(); // eat ]
 
@@ -187,7 +185,7 @@ pub const Parser = struct {
         if (hasLit(values_al.items)) {
             if (values_al.items[0] != .Literal) {
                 self.printErrMsg("uniform well-nested dimensions", "inside literal expression");
-                return ParseFailure.ExprAST;
+                return ParseFailure.Literal;
             }
             const first_literal = values_al.items[0].Literal;
             const first_dims = first_literal.getDims();
@@ -199,7 +197,7 @@ pub const Parser = struct {
                 const _dims = expr_literal.getDims();
                 if (v != .Literal or !std.mem.eql(i64, _dims.shape, first_dims.shape)) {
                     self.printErrMsg("uniform well-nested dimensions", "inside literal expression");
-                    return ParseFailure.ExprAST;
+                    return ParseFailure.Literal;
                 }
             }
         }
@@ -264,7 +262,7 @@ pub const Parser = struct {
 
                 if (!std.meta.eql(cur_tok, lexer.Token{ .tok_other = ',' })) {
                     self.printErrMsg(", or )", "in argument list");
-                    return ParseFailure.ExprAST;
+                    return ParseFailure.Call;
                 }
                 _ = try self.getNextToken();
             }
@@ -282,7 +280,7 @@ pub const Parser = struct {
 
             if (args.slice.len != 1) {
                 self.printErrMsg("<single arg>", "as argument to print()");
-                return ParseFailure.ExprAST;
+                return ParseFailure.Call;
             }
             const ret = try ast.PrintExprAST.init(self.allocator, loc, args.slice[0]);
             return ret.tagged();
@@ -458,7 +456,7 @@ pub const Parser = struct {
     fn parseBlock(self: Self) ParseError!ast.FunctionAST.BodyType {
         if (self._lexer.getCurToken() != .tok_cbracket_open) {
             self.printErrMsg("{", "to begin block");
-            return ParseFailure.ExprASTList;
+            return ParseFailure.Block;
         }
         try self.consumeToken(.tok_cbracket_open);
 
@@ -511,7 +509,7 @@ pub const Parser = struct {
 
         if (self._lexer.getCurToken() != .tok_cbracket_close) {
             self.printErrMsg("}", "to close block");
-            return ParseFailure.ExprASTList;
+            return ParseFailure.Block;
         }
         try self.consumeToken(.tok_cbracket_close);
 
