@@ -788,6 +788,96 @@ const ParserTestHelper = struct {
     }
 };
 
+test "invalid return expr" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  return +;
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.ExprAST, _parser.parseModule());
+}
+
+test "invalid tensor literal expr 1" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  [1, 2, +, 3]
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Literal, _parser.parseModule());
+}
+
+test "invalid tensor literal expr 2" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  [1 _ 2]
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Literal, _parser.parseModule());
+}
+
+test "invalid tensor literal expr - non-uniform" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  [[1, 2], [3]];
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Literal, _parser.parseModule());
+}
+
+test "invalid parenthesized expr" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  (1
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.ExprAST, _parser.parseModule());
+}
+
 test "invalid call" {
     try ParserTestHelper.shouldSkipTest();
 
@@ -809,6 +899,7 @@ test "invalid call" {
 test "invalid print" {
     try ParserTestHelper.shouldSkipTest();
 
+    // print() takes only 1 argument
     const content =
         \\def main() {
         \\  print(1, 2)
@@ -858,4 +949,96 @@ test "invalid binary expr" {
     defer _parser.deinit();
 
     try ParserTestHelper.expectParseError(ParseError.ExprAST, _parser.parseModule());
+}
+
+test "invalid var type" {
+    try ParserTestHelper.shouldSkipTest();
+
+    // Shape should contain a comma/space-separated list of numbers
+    const content =
+        \\def main() {
+        \\  var a<1,,>;
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.VarType, _parser.parseModule());
+}
+
+test "invalid declaration" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  var 1 = 2;
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.VarDeclExprAST, _parser.parseModule());
+}
+
+test "invalid block - 1" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main()
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Block, _parser.parseModule());
+}
+
+test "invalid block - 2" {
+    try ParserTestHelper.shouldSkipTest();
+
+    // Variable/Declaration/Literal should end with a semicolon
+    const content =
+        \\def main() {
+        \\  a
+        \\  var b = 1
+        \\  [1, 2, 3]
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Block, _parser.parseModule());
+}
+
+test "invalid prototype" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        // \\def {}
+        // \\def add {}
+        \\def
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Prototype, _parser.parseModule());
 }
