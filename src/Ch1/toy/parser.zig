@@ -46,9 +46,13 @@ pub const Parser = struct {
 
         while (true) {
             const func_ast = try self.parseDefinition();
-            errdefer func_ast.deinit();
+            functions_al.append(func_ast) catch |err| {
+                // Cleanup the just-created expr here, the remaining ones
+                // in list will be handled by the `errdefer` above.
+                func_ast.deinit();
+                return err;
+            };
 
-            try functions_al.append(func_ast);
             if (self._lexer.getCurToken() == .tok_eof) break;
         }
 
@@ -134,9 +138,10 @@ pub const Parser = struct {
         while (true) {
             if (self._lexer.getCurToken() == .tok_sbracket_open) {
                 var literal = try self.parseTensorLiteralExpr();
-                errdefer literal.deinit();
-
-                try values_al.append(literal);
+                values_al.append(literal) catch |err| {
+                    literal.deinit();
+                    return err;
+                };
             } else {
                 if (self._lexer.getCurToken() != .tok_num) {
                     self.printErrMsg("<num> or [", "in literal expression");
@@ -144,9 +149,10 @@ pub const Parser = struct {
                 }
 
                 var num = try self.parseNumberExpr();
-                errdefer num.deinit();
-
-                try values_al.append(num);
+                values_al.append(num) catch |err| {
+                    num.deinit();
+                    return err;
+                };
             }
 
             // End of this list on ']'
@@ -251,9 +257,11 @@ pub const Parser = struct {
 
         if (self._lexer.getCurToken() != .tok_parenthese_close) {
             while (true) {
-                var expr = try self.parseExpression();
-                errdefer expr.deinit();
-                try args_al.append(expr);
+                const expr = try self.parseExpression();
+                args_al.append(expr) catch |err| {
+                    expr.deinit();
+                    return err;
+                };
 
                 const cur_tok = self._lexer.getCurToken();
                 if (cur_tok == .tok_parenthese_close) {
@@ -270,19 +278,25 @@ pub const Parser = struct {
         try self.consumeToken(.tok_parenthese_close);
 
         var args = try ast.ExprASTListType.fromArrayList(&args_al);
-        errdefer args.deinit();
+        errdefer {
+            for (args.slice) |v| {
+                v.deinit();
+            }
+            args.deinit();
+        }
 
         if (std.mem.eql(u8, name, "print")) {
-            // NOTE: if we are processing a print statement, we have to release
-            // memory allocated for `args` since we are not handing over the
-            // ownership of `args` itself to others.
-            defer args.deinit();
-
             if (args.slice.len != 1) {
                 self.printErrMsg("<single arg>", "as argument to print()");
                 return ParseFailure.Call;
             }
             const ret = try ast.PrintExprAST.init(self.allocator, loc, args.slice[0]);
+
+            // NOTE: if we are processing a print statement, we have to release
+            // memory allocated for `args` since we are not handing over the
+            // ownership of `args` itself to others.
+            args.deinit();
+
             return ret.tagged();
         }
 
@@ -375,9 +389,7 @@ pub const Parser = struct {
         try self.consumeToken(.tok_abracket_open);
 
         var shape_al = ast.VarType.ArrayList.init(self.allocator);
-        errdefer {
-            shape_al.deinit();
-        }
+        errdefer shape_al.deinit();
 
         while (self._lexer.getCurToken() == .tok_num) {
             try shape_al.append(@intFromFloat(self._lexer.getValue()));
@@ -478,18 +490,24 @@ pub const Parser = struct {
             switch (cur_tok) {
                 .tok_var => {
                     var var_decl = try self.parseDeclaration();
-                    errdefer var_decl.deinit();
-                    try body_al.append(var_decl.tagged());
+                    body_al.append(var_decl.tagged()) catch |err| {
+                        var_decl.deinit();
+                        return err;
+                    };
                 },
                 .tok_return => {
                     var ret_tagged = try self.parseReturn();
-                    errdefer ret_tagged.deinit();
-                    try body_al.append(ret_tagged);
+                    body_al.append(ret_tagged) catch |err| {
+                        ret_tagged.deinit();
+                        return err;
+                    };
                 },
                 else => {
                     var expr = try self.parseExpression();
-                    errdefer expr.deinit();
-                    try body_al.append(expr);
+                    body_al.append(expr) catch |err| {
+                        expr.deinit();
+                        return err;
+                    };
                 },
             }
 
@@ -555,8 +573,10 @@ pub const Parser = struct {
             try self.consumeToken(.{ .tok_ident = arg_name });
 
             var decl = try ast.VariableExprAST.init(self.allocator, arg_loc, arg_name);
-            errdefer decl.deinit();
-            try args_al.append(decl);
+            args_al.append(decl) catch |err| {
+                decl.deinit();
+                return err;
+            };
 
             const tok_comma = lexer.Token{ .tok_other = ',' };
             if (!std.meta.eql(self._lexer.getCurToken(), tok_comma)) {
@@ -767,6 +787,42 @@ const ParserTestHelper = struct {
         }
     }
 };
+
+test "invalid call" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  foo(1 2)
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Call, _parser.parseModule());
+}
+
+test "invalid print" {
+    try ParserTestHelper.shouldSkipTest();
+
+    const content =
+        \\def main() {
+        \\  print(1, 2)
+        \\}
+    ;
+    const fname = "foobar.toy";
+
+    var _lexer = try ParserTestHelper.createLexer(fname, content);
+    defer _lexer.deinit();
+    var _parser = Parser.init(&_lexer, test_alloc);
+    defer _parser.deinit();
+
+    try ParserTestHelper.expectParseError(ParseError.Call, _parser.parseModule());
+}
 
 test "invalid expr in nested binary expr" {
     try ParserTestHelper.shouldSkipTest();
