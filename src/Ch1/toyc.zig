@@ -9,10 +9,9 @@ const ArgParseError = argparse.ArgParseError;
 
 pub const Action = enum { none, ast };
 
-pub fn parseInputFile(file_path: []const u8, allocator: std.mem.Allocator) !*ast.ModuleAST {
-    var _lexer = try lexer.Lexer.init(file_path);
-    var _parser = parser.Parser.init(&_lexer, allocator);
-    return try _parser.parseModule();
+pub fn createParser(file_path: []const u8, allocator: std.mem.Allocator) !*parser.Parser {
+    const _lexer = try lexer.Lexer.init(file_path, allocator);
+    return try parser.Parser.init(_lexer, allocator);
 }
 
 pub fn main() !void {
@@ -46,7 +45,10 @@ pub fn main() !void {
         std.process.exit(1);
     }
 
-    var module_ast = try parseInputFile(file_path, allocator);
+    var _parser = try createParser(file_path, allocator);
+    defer _parser.deinit();
+
+    var module_ast = try _parser.parseModule();
     defer module_ast.deinit();
 
     var ast_dumper = try ast.ASTDumper.init(allocator, 1024);

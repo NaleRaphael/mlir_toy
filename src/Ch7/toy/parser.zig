@@ -27,12 +27,18 @@ pub const Parser = struct {
 
     const Self = @This();
 
-    pub fn init(_lexer: *lexer.Lexer, allocator: std.mem.Allocator) Self {
-        return .{ ._lexer = _lexer, .allocator = allocator };
+    pub fn init(_lexer: *lexer.Lexer, allocator: std.mem.Allocator) !*Self {
+        const ptr = try allocator.create(Self);
+        ptr.* = .{
+            ._lexer = _lexer,
+            .allocator = allocator,
+        };
+        return ptr;
     }
 
     pub fn deinit(self: *Self) void {
         self._lexer.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn parseModule(self: Self) ParseError!*ast.ModuleAST {
@@ -970,7 +976,11 @@ const ParserTestHelper = struct {
 
     // Just a combination of existing tricks done in "lexer.zig" to create a
     // lexer with string as content without loading file from disk.
-    pub fn createLexer(filename: []const u8, content: []const u8) !lexer.Lexer {
+    pub fn createLexer(
+        filename: []const u8,
+        content: []const u8,
+        allocator: std.mem.Allocator,
+    ) !*lexer.Lexer {
         const memfd = try std.posix.memfd_create(filename, std.posix.MFD.CLOEXEC);
 
         try std.posix.ftruncate(memfd, content.len);
@@ -981,7 +991,8 @@ const ParserTestHelper = struct {
         const memfile = std.fs.File{ .handle = memfd };
         defer memfile.close();
 
-        return .{
+        const ptr = try allocator.create(lexer.Lexer);
+        ptr.* = .{
             .last_location = .{
                 .file = filename,
                 .line = 0,
@@ -990,7 +1001,9 @@ const ParserTestHelper = struct {
             .identifier_str = "",
             .cur_line_buf = lexer.StringRef.init("\n"),
             .buffer = try lexer.LexerBuffer.init(memfile),
+            .allocator = allocator,
         };
+        return ptr;
     }
 
     // A modified `std.testing.expectError()` to make us able to clean up
@@ -1030,9 +1043,8 @@ const ParserTestHelper = struct {
         // We use the name of test case here if case we need debugging
         const fname = test_src.fn_name;
 
-        var _lexer = try ParserTestHelper.createLexer(fname, content);
-        defer _lexer.deinit();
-        var _parser = Parser.init(&_lexer, allocator);
+        const _lexer = try ParserTestHelper.createLexer(fname, content, allocator);
+        var _parser = try Parser.init(_lexer, allocator);
         defer _parser.deinit();
 
         ParserTestHelper.expectParseError(

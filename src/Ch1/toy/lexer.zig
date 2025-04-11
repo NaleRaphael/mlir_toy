@@ -108,14 +108,18 @@ pub const Lexer = struct {
     cur_col: u32 = 0,
     cur_line_buf: StringRef,
     buffer: LexerBuffer,
+    allocator: std.mem.Allocator,
 
     const Self = @This();
 
-    pub fn init(filename: []const u8) !Self {
+    pub fn init(filename: []const u8, allocator: std.mem.Allocator) !*Self {
         const file = try std.fs.cwd().openFile(filename, .{ .mode = .read_only });
         defer file.close();
 
-        return Self{
+        const ptr = try allocator.create(Self);
+        errdefer allocator.destroy(ptr);
+
+        ptr.* = .{
             .last_location = .{
                 .file = filename,
                 .line = 0,
@@ -124,11 +128,14 @@ pub const Lexer = struct {
             .identifier_str = "",
             .cur_line_buf = StringRef.init("\n"),
             .buffer = try LexerBuffer.init(file),
+            .allocator = allocator,
         };
+        return ptr;
     }
 
     pub fn deinit(self: *Self) void {
         self.buffer.deinit();
+        self.allocator.destroy(self);
     }
 
     pub fn getCurToken(self: Self) Token {
@@ -285,7 +292,7 @@ pub const Lexer = struct {
 pub const LexerBuffer = struct {
     current: u64,
     end: u64,
-    data: []align(std.mem.page_size) u8,
+    data: ?[]align(std.mem.page_size) u8,
 
     const Self = @This();
 
@@ -309,12 +316,15 @@ pub const LexerBuffer = struct {
     }
 
     pub fn deinit(self: *Self) void {
-        std.posix.munmap(self.data);
+        if (self.data) |data_ptr| {
+            std.posix.munmap(data_ptr);
+            self.data = null;
+        }
     }
 
     pub fn readNextLine(self: *Self) StringRef {
         const begin = self.current;
-        while (self.current < self.end and self.data[self.current] != '\n') {
+        while (self.current < self.end and self.data.?[self.current] != '\n') {
             self.current += 1;
         }
         // If we haven't reach to the last line, read the newline char as well.
@@ -322,7 +332,7 @@ pub const LexerBuffer = struct {
             self.current += 1;
         }
         const len = self.current - begin;
-        return StringRef.init(self.data[begin..][0..len]);
+        return StringRef.init(self.data.?[begin..][0..len]);
     }
 };
 
@@ -372,7 +382,7 @@ test "Lexer__getTok" {
     var path_buf: [256]u8 = undefined;
     const tmpfile_path = try tmp.dir.realpath(filename, &path_buf);
 
-    var lexer = try Lexer.init(tmpfile_path);
+    var lexer = try Lexer.init(tmpfile_path, std.testing.allocator);
     defer lexer.deinit();
 
     for (expected_tokens) |expected| {

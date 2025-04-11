@@ -81,10 +81,9 @@ pub const MLIRContextManager = struct {
     }
 };
 
-pub fn parseInputFile(file_path: []const u8, allocator: Allocator) !*ast.ModuleAST {
-    var _lexer = try lexer.Lexer.init(file_path);
-    var _parser = parser.Parser.init(&_lexer, allocator);
-    return try _parser.parseModule();
+pub fn createParser(file_path: []const u8, allocator: std.mem.Allocator) !*parser.Parser {
+    const _lexer = try lexer.Lexer.init(file_path, allocator);
+    return try parser.Parser.init(_lexer, allocator);
 }
 
 pub fn readMLIRFromToy(
@@ -92,7 +91,10 @@ pub fn readMLIRFromToy(
     mlirgen: *MLIRGen,
     file_path: []const u8,
 ) !c.MlirOperation {
-    var module_ast = try parseInputFile(file_path, allocator);
+    var _parser = try createParser(file_path, allocator);
+    defer _parser.deinit();
+
+    var module_ast = try _parser.parseModule();
     defer module_ast.deinit();
 
     const module = mlirgen.fromModule(module_ast) catch {
@@ -225,7 +227,10 @@ pub fn processMLIR(
 }
 
 pub fn dumpAST(file_path: []const u8, allocator: Allocator) !void {
-    var module_ast = try parseInputFile(file_path, allocator);
+    var _parser = try createParser(file_path, allocator);
+    defer _parser.deinit();
+
+    var module_ast = try _parser.parseModule();
     defer module_ast.deinit();
 
     var ast_dumper = try ast.ASTDumper.init(allocator, 1024);
