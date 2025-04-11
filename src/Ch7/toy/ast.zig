@@ -75,6 +75,13 @@ pub const VarType = union(enum) {
             return .{ .shaped = self };
         }
     };
+
+    pub fn deinit(self: *@This()) void {
+        switch (self.*) {
+            .named => {},
+            .shaped => |*v| v.deinit(),
+        }
+    }
 };
 
 pub const ExprASTKind = enum {

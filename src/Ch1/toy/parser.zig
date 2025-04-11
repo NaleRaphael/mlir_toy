@@ -334,8 +334,8 @@ pub const Parser = struct {
 
         // NOTE: since `lhs_` may represent a nested BinOp, calling
         // `lhs_.deinit()` will recursively release all memory allocated for
-        // its `lhs` and `rhs`. This behavior is useful cleanup, but it can be
-        // tricky to understand at first.
+        // its `lhs` and `rhs`. This behavior is useful to cleanup, but it can
+        // be tricky to understand at first.
         errdefer lhs_.deinit();
 
         while (true) {
@@ -355,12 +355,12 @@ pub const Parser = struct {
             };
 
             // NOTE: we don't need to add `errdefer rhs.deinit()` here because:
-            // 1. if `rhs` is passed to the next `parseBinOpRHS()`, it
-            //    will be handled the existing `errdefer lhs_.deinit()` above.
-            //    So adding `errdefer rhs.deinit()` here would acutally result
-            //    in a double-free.
-            // 2. if the following if-block is not entered, `rhs` will be
-            //    used to create a new BinOp and update the top-level `lhs_`.
+            // 1. if `rhs` is passed to the next `parseBinOpRHS()`, it will be
+            //    handled by the existing `errdefer lhs_.deinit()` above. So
+            //    adding `errdefer rhs.deinit()` here would acutally result in
+            //    a double-free.
+            // 2. if the following if-block is not entered, `rhs` will be used
+            //    to create a new BinOp and update the top-level `lhs_`.
             //    In this case, the cleanup process for this `rhs` is already
             //    covered by the `errdefer lhs_.deinit()`.
 
