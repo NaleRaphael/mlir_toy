@@ -29,6 +29,18 @@ check_var() {
         echo "[ERROR] Please specify a value for $var_name"
         exit 1
     fi
+
+    if [[ $file_type == "d" ]]; then
+        if [[ ! -d $var_value ]]; then
+            echo "[ERROR] directory does not exist: $var_value"
+            exit 1
+        fi
+    elif [[ $file_type == "f" ]]; then
+        if [[ ! -f $var_value ]]; then
+            echo "[ERROR] file does not exist: $var_value"
+            exit 1
+        fi
+    fi
 }
 
 # ==============================================================================
