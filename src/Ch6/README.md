@@ -11,7 +11,7 @@ src/Ch6/
     └── lib/      # - Libraries of Toy dialect and C-API
 ```
 
-## NOTE
+## Note
 - We need to add `mlir::LLVM:createRequestCWrappersPass()` to the pass pipeline
   to make functions able to be invoked via execution engine's C-API.
   This pass will attach `llvm.emit_c_interface` attribute to each function,

@@ -808,7 +808,7 @@ const ParserTestHelper = struct {
     ) !void {
         try ParserTestHelper.shouldSkipTest();
 
-        // We use the name of test case here if case we need debugging
+        // We use the name of test case here in case we need debugging
         const fname = test_src.fn_name;
 
         const _lexer = try ParserTestHelper.createLexer(fname, content, allocator);

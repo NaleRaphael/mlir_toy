@@ -43,6 +43,11 @@ code.
   (see also "toy/cpp/Helper.h")
   - `DEFINE_C_API_METHODS`: for value type
   - `DEFINE_C_API_PTR_METHODS`: for pointer type
+- If you are also re-implementing this chapter, you might find the generated
+  MLIR would contain some extra markers like "^bb0" (block label) when your
+  codegen is not finished yet. You can ignore that and just compare the output
+  with the one generated from `toyc-chX`, and those markers will not be printed
+  out when the codegen is finished.
 
 
 [1]: https://github.com/llvm/llvm-project/tree/release/17.x/mlir/examples/toy/Ch2

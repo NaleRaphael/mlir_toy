@@ -26,7 +26,7 @@ FILECHECK_BIN=${MLIR_DIR}/bin/FileCheck
 #
 # NOTE: Please don't specify `--check-prefix`. Because we are using different
 # prefix per case to make us able to check each single test case without being
-# bothered by the ordering.
+# bothered by the ordering of expected output patterns written in comments.
 FILECHECK_OPTS=''
 
 check_path() {
