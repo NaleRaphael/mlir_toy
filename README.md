@@ -42,11 +42,11 @@ $ ./compare_output.sh
 > in `compare_output.sh` accordingly.
 ```bash
 # Assume that you cloned LLVM source repo to "~/workspace/tool/llvm-17", and
-# ran the script "./utils/llvm/build_mlir.sh" to build MLIR.
+# ran the script "./utils/llvm/build_llvm_mlir.sh" to build MLIR.
 $ LLVM_ROOT_DIR=~/workspace/tool/llvm-17
-$ MLIR_BUILD_DIR=${LLVM_SRC_DIR}/build_reldeb_rtti
+$ MLIR_INST_DIR=${LLVM_SRC_DIR}/out/mlir
 
-$ ln -s ${MLIR_BUILD_DIR}/bin toy_bin
+$ ln -s ${MLIR_INST_DIR}/examples toy_bin
 $ ln -s ${LLVM_ROOT_DIR}/mlir/test/Examples/Toy toy_examples
 ```
 
