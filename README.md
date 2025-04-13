@@ -64,6 +64,20 @@ $ cd tests/mlir
 $ ./run_tests.sh
 ```
 
+### Compare the output with C++ implementation for a chapter
+```bash
+# Usage: ./tests/compare_toyc_output.sh <ChN>
+# - ChN: chapter number (0 ~ 7)
+#
+# Environment variables:
+# - VERBOSE: (0 or 1) show details when running test
+# - ENABLE_DEBUG: (0 or 1) add debug options to CLI when running toyc binaries
+
+# Example: compare the outputs of C++ and our Zig implementation for Ch7, and
+# show the details while running.
+$ VERBOSE=1 ./tests/compare_toyc_output.sh 7
+```
+
 
 ## Tips
 - If you ran into problems while compiling with C libraries, try adding flags
